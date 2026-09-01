@@ -1,0 +1,6 @@
+{
+  "name": "KASIRKU - POS System",
+  "description": "Modern Point of Sale (POS) system with sales dashboard, category and product management, real-time stock control, transaction receipt generation, and system settings.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
