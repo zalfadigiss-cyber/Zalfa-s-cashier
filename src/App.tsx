@@ -1,11 +1,30 @@
 import React, { useState, useEffect } from 'react';
-import { TabType, Category, Product, Transaction, StoreSettings } from './types';
+import {
+  TabType,
+  Category,
+  Product,
+  Transaction,
+  StoreSettings,
+  Branch,
+  Customer,
+  VoucherPromo,
+  ShiftSession,
+  HoldOrder,
+  ShiftLog,
+  AppUser,
+} from './types';
 import {
   initialCategories,
   initialProducts,
   initialTransactions,
   initialStoreSettings,
+  initialBranches,
+  initialCustomers,
+  initialVouchers,
+  initialActiveShift,
+  initialUsers,
 } from './data/initialData';
+import { AuthScreen } from './components/AuthScreen';
 import { Sidebar } from './components/Sidebar';
 import { TopHeader } from './components/TopHeader';
 import { DashboardScreen } from './components/DashboardScreen';
@@ -17,12 +36,19 @@ import { RiwayatPenjualanScreen } from './components/RiwayatPenjualanScreen';
 import { LaporanScreen } from './components/LaporanScreen';
 import { PengaturanScreen } from './components/PengaturanScreen';
 import { BantuanModal } from './components/BantuanModal';
+import { ShiftModal } from './components/ShiftModal';
+import { HotkeysModal } from './components/HotkeysModal';
+import { ConfirmationModal } from './components/ConfirmationModal';
+import { getIndonesianDate, getIndonesianTime } from './utils/format';
 
 export default function App() {
   // Navigation State
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
   const [isOpenMobile, setIsOpenMobile] = useState<boolean>(false);
   const [isHelpOpen, setIsHelpOpen] = useState<boolean>(false);
+  const [isShiftModalOpen, setIsShiftModalOpen] = useState<boolean>(false);
+  const [isHotkeysOpen, setIsHotkeysOpen] = useState<boolean>(false);
+  const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState<boolean>(false);
   const [globalSearch, setGlobalSearch] = useState<string>('');
 
   // Primary Data State with Local Storage fallback
@@ -62,6 +88,84 @@ export default function App() {
     }
   });
 
+  // Enterprise Users & Authentication State
+  const [users, setUsers] = useState<AppUser[]>(() => {
+    try {
+      const saved = localStorage.getItem('kasirku_users');
+      if (saved) {
+        const parsed: AppUser[] = JSON.parse(saved);
+        // Guarantee Super Admin zalfaw4 is always present in users
+        if (!parsed.some((u) => u.username === 'zalfaw4')) {
+          parsed.unshift(initialUsers[0]);
+        }
+        return parsed;
+      }
+      return initialUsers;
+    } catch {
+      return initialUsers;
+    }
+  });
+
+  const [currentUser, setCurrentUser] = useState<AppUser | null>(() => {
+    try {
+      const saved = localStorage.getItem('kasirku_current_user');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  // Enterprise Multi-Branch State
+  const [branches, setBranches] = useState<Branch[]>(() => {
+    try {
+      const saved = localStorage.getItem('kasirku_branches');
+      return saved ? JSON.parse(saved) : initialBranches;
+    } catch {
+      return initialBranches;
+    }
+  });
+  const [activeBranchId, setActiveBranchId] = useState<string>(branches[0]?.id || 'branch-01');
+
+  // Enterprise CRM Customers & Loyalty
+  const [customers, setCustomers] = useState<Customer[]>(() => {
+    try {
+      const saved = localStorage.getItem('kasirku_customers');
+      return saved ? JSON.parse(saved) : initialCustomers;
+    } catch {
+      return initialCustomers;
+    }
+  });
+
+  // Enterprise Vouchers
+  const [vouchers, setVouchers] = useState<VoucherPromo[]>(() => {
+    try {
+      const saved = localStorage.getItem('kasirku_vouchers');
+      return saved ? JSON.parse(saved) : initialVouchers;
+    } catch {
+      return initialVouchers;
+    }
+  });
+
+  // Enterprise Shift & Cash Drawer
+  const [currentShift, setCurrentShift] = useState<ShiftSession | null>(() => {
+    try {
+      const saved = localStorage.getItem('kasirku_active_shift');
+      return saved ? JSON.parse(saved) : initialActiveShift;
+    } catch {
+      return initialActiveShift;
+    }
+  });
+
+  // Enterprise Held Orders (Tahan Pesanan)
+  const [heldOrders, setHeldOrders] = useState<HoldOrder[]>(() => {
+    try {
+      const saved = localStorage.getItem('kasirku_held_orders');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
   // Active Receipt to open automatically or from history
   const [activeReceiptTrx, setActiveReceiptTrx] = useState<Transaction | null>(null);
 
@@ -97,6 +201,85 @@ export default function App() {
       // ignore
     }
   }, [settings]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('kasirku_users', JSON.stringify(users));
+    } catch {
+      // ignore
+    }
+  }, [users]);
+
+  useEffect(() => {
+    try {
+      if (currentUser) {
+        localStorage.setItem('kasirku_current_user', JSON.stringify(currentUser));
+      } else {
+        localStorage.removeItem('kasirku_current_user');
+      }
+    } catch {
+      // ignore
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('kasirku_branches', JSON.stringify(branches));
+    } catch {
+      // ignore
+    }
+  }, [branches]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('kasirku_customers', JSON.stringify(customers));
+    } catch {
+      // ignore
+    }
+  }, [customers]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('kasirku_active_shift', JSON.stringify(currentShift));
+    } catch {
+      // ignore
+    }
+  }, [currentShift]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('kasirku_held_orders', JSON.stringify(heldOrders));
+    } catch {
+      // ignore
+    }
+  }, [heldOrders]);
+
+  // Active Branch helper
+  const activeBranch = branches.find((b) => b.id === activeBranchId) || branches[0];
+
+  // User Authentication & Account Handlers
+  const handleLogin = (user: AppUser) => {
+    setCurrentUser(user);
+    // Automatically update cashier identity on receipts & session
+    setSettings((prev) => ({
+      ...prev,
+      userName: user.name,
+      userEmail: user.email || prev.userEmail,
+      userPhotoUrl: user.avatarUrl || prev.userPhotoUrl,
+    }));
+  };
+
+  const handleRegister = (newUser: AppUser) => {
+    setUsers((prev) => [newUser, ...prev]);
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+  };
+
+  const handleDeleteUser = (userId: string) => {
+    setUsers((prev) => prev.filter((u) => u.id !== userId));
+  };
 
   // Product Operations
   const handleAddProduct = (newProd: Omit<Product, 'id'>) => {
@@ -138,9 +321,15 @@ export default function App() {
     setCategories((prev) => prev.filter((c) => c.id !== categoryId));
   };
 
-  // Complete Transaction (decrease stock, record history)
+  // Complete Transaction (decrease stock, record history, add loyalty points, record to shift)
   const handleCompleteTransaction = (newTrx: Transaction) => {
-    setTransactions((prev) => [newTrx, ...prev]);
+    const transactionWithBranch: Transaction = {
+      ...newTrx,
+      branchName: activeBranch?.name || settings.storeName,
+      shiftId: currentShift ? currentShift.id : undefined,
+    };
+
+    setTransactions((prev) => [transactionWithBranch, ...prev]);
 
     // Decrement stocks
     setProducts((prev) => {
@@ -153,6 +342,151 @@ export default function App() {
         return prod;
       });
     });
+
+    // Update Customer loyalty points & total spent if linked
+    if (newTrx.customerPhone || newTrx.customerName) {
+      setCustomers((prev) =>
+        prev.map((cust) => {
+          if (
+            (newTrx.customerPhone && cust.phone === newTrx.customerPhone) ||
+            cust.name === newTrx.customerName
+          ) {
+            const addedPoints = newTrx.pointsEarned || Math.floor(newTrx.total / 10000);
+            const deductedPoints = newTrx.pointsUsed || 0;
+            const updatedPoints = Math.max(0, cust.points + addedPoints - deductedPoints);
+            const updatedSpent = cust.totalSpent + newTrx.total;
+
+            let updatedTier = cust.tier;
+            if (updatedSpent > 2500000) updatedTier = 'VIP';
+            else if (updatedSpent > 1000000) updatedTier = 'Gold';
+            else if (updatedSpent > 300000) updatedTier = 'Silver';
+
+            return {
+              ...cust,
+              points: updatedPoints,
+              totalSpent: updatedSpent,
+              tier: updatedTier,
+            };
+          }
+          return cust;
+        })
+      );
+    }
+  };
+
+  // Void / Cancel Transaction (Audit record & stock replenishment)
+  const handleVoidTransaction = (trxId: string, reason: string) => {
+    const targetTrx = transactions.find((t) => t.id === trxId);
+    if (!targetTrx || targetTrx.status === 'dibatalkan') return;
+
+    // Mark as void
+    setTransactions((prev) =>
+      prev.map((t) =>
+        t.id === trxId
+          ? {
+              ...t,
+              status: 'dibatalkan',
+              voidReason: reason,
+              voidedAt: `${getIndonesianDate()} ${getIndonesianTime()}`,
+              voidedBy: settings.userName,
+            }
+          : t
+      )
+    );
+
+    // Replenish product inventory
+    setProducts((prev) =>
+      prev.map((prod) => {
+        const item = targetTrx.items.find((i) => i.productId === prod.id);
+        if (item) {
+          return { ...prod, stock: prod.stock + item.quantity };
+        }
+        return prod;
+      })
+    );
+  };
+
+  // Shift Management Handlers
+  const handleOpenNewShift = (startingCash: number) => {
+    const newShiftNumber = currentShift?.shiftNumber ? currentShift.shiftNumber + 1 : 1;
+    const newSession: ShiftSession = {
+      id: 'shift-' + Date.now(),
+      shiftNumber: newShiftNumber,
+      cashierName: settings.userName,
+      branchId: activeBranchId,
+      branchName: activeBranch?.name || settings.storeName,
+      startDate: getIndonesianDate(),
+      startTime: getIndonesianTime(),
+      startingCash,
+      cashInLogs: [],
+      cashOutLogs: [],
+      status: 'open',
+    };
+    setCurrentShift(newSession);
+  };
+
+  const handleAddCashLog = (type: 'masuk' | 'keluar', amount: number, reason: string) => {
+    if (!currentShift) return;
+    const newLog: ShiftLog = {
+      id: 'log-' + Date.now(),
+      time: getIndonesianTime(),
+      amount,
+      reason,
+      type,
+    };
+    if (type === 'masuk') {
+      setCurrentShift({
+        ...currentShift,
+        cashInLogs: [...currentShift.cashInLogs, newLog],
+      });
+    } else {
+      setCurrentShift({
+        ...currentShift,
+        cashOutLogs: [...currentShift.cashOutLogs, newLog],
+      });
+    }
+  };
+
+  const handleCloseShift = (actualCash: number, notes: string) => {
+    if (!currentShift) return;
+    const shiftTransactions = transactions.filter(
+      (t) => t.status === 'sukses'
+    );
+    const cashSales = shiftTransactions
+      .filter((t) => t.paymentMethod === 'tunai')
+      .reduce((sum, t) => sum + t.total, 0);
+
+    const totalCashIn = currentShift.cashInLogs.reduce((sum, l) => sum + l.amount, 0);
+    const totalCashOut = currentShift.cashOutLogs.reduce((sum, l) => sum + l.amount, 0);
+
+    const expectedCashEnd = currentShift.startingCash + cashSales + totalCashIn - totalCashOut;
+    const discrepancy = actualCash - expectedCashEnd;
+
+    const closed: ShiftSession = {
+      ...currentShift,
+      endTime: getIndonesianTime(),
+      endDate: getIndonesianDate(),
+      expectedCashEnd,
+      actualCashEnd: actualCash,
+      discrepancy,
+      notes,
+      status: 'closed',
+    };
+
+    setCurrentShift(closed);
+  };
+
+  // Hold Order Handlers
+  const handleHoldOrder = (order: HoldOrder) => {
+    setHeldOrders((prev) => [order, ...prev]);
+  };
+
+  const handleRestoreHeldOrder = (orderId: string) => {
+    setHeldOrders((prev) => prev.filter((o) => o.id !== orderId));
+  };
+
+  const handleDeleteHeldOrder = (orderId: string) => {
+    setHeldOrders((prev) => prev.filter((o) => o.id !== orderId));
   };
 
   const handleOpenReceipt = (trx: Transaction) => {
@@ -161,6 +495,17 @@ export default function App() {
   };
 
   const lowStockCount = products.filter((p) => p.stock <= p.minStock).length;
+
+  // Gate access with Login / Register screen if user not logged in
+  if (!currentUser) {
+    return (
+      <AuthScreen
+        onLogin={handleLogin}
+        onRegister={handleRegister}
+        users={users}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#fff8f4] flex flex-col md:flex-row text-[#201b14] overflow-x-hidden">
@@ -171,6 +516,8 @@ export default function App() {
         isOpenMobile={isOpenMobile}
         setIsOpenMobile={setIsOpenMobile}
         settings={settings}
+        currentUser={currentUser}
+        onLogout={() => setIsLogoutConfirmOpen(true)}
         onOpenHelp={() => setIsHelpOpen(true)}
       />
 
@@ -181,9 +528,17 @@ export default function App() {
           onOpenMobileMenu={() => setIsOpenMobile(true)}
           onOpenHelp={() => setIsHelpOpen(true)}
           settings={settings}
+          currentUser={currentUser}
+          onLogout={() => setIsLogoutConfirmOpen(true)}
           searchQuery={globalSearch}
           setSearchQuery={setGlobalSearch}
           lowStockCount={lowStockCount}
+          branches={branches}
+          activeBranchId={activeBranchId}
+          onSelectBranch={setActiveBranchId}
+          currentShift={currentShift}
+          onOpenShiftModal={() => setIsShiftModalOpen(true)}
+          onOpenHotkeysGuide={() => setIsHotkeysOpen(true)}
         />
 
         {/* View Routing */}
@@ -201,8 +556,16 @@ export default function App() {
               products={products}
               categories={categories}
               settings={settings}
+              customers={customers}
+              vouchers={vouchers}
+              heldOrders={heldOrders}
+              activeBranchName={activeBranch?.name || settings.storeName}
               onCompleteTransaction={handleCompleteTransaction}
               onOpenReceipt={handleOpenReceipt}
+              onHoldOrder={handleHoldOrder}
+              onRestoreHeldOrder={handleRestoreHeldOrder}
+              onDeleteHeldOrder={handleDeleteHeldOrder}
+              onOpenHotkeysGuide={() => setIsHotkeysOpen(true)}
             />
           )}
 
@@ -240,6 +603,7 @@ export default function App() {
               settings={settings}
               selectedReceiptTrx={activeReceiptTrx}
               onCloseReceipt={() => setActiveReceiptTrx(null)}
+              onVoidTransaction={handleVoidTransaction}
             />
           )}
 
@@ -254,6 +618,9 @@ export default function App() {
           {activeTab === 'pengaturan' && (
             <PengaturanScreen
               settings={settings}
+              currentUser={currentUser}
+              users={users}
+              onDeleteUser={handleDeleteUser}
               onSaveSettings={(newSettings) => setSettings(newSettings)}
             />
           )}
@@ -262,6 +629,41 @@ export default function App() {
 
       {/* Global Help Modal */}
       <BantuanModal isOpen={isHelpOpen} onClose={() => setIsHelpOpen(false)} />
+
+      {/* Shift & Cash Drawer Modal */}
+      <ShiftModal
+        isOpen={isShiftModalOpen}
+        onClose={() => setIsShiftModalOpen(false)}
+        currentShift={currentShift}
+        transactions={transactions}
+        settings={settings}
+        activeBranchName={activeBranch?.name || settings.storeName}
+        onOpenNewShift={handleOpenNewShift}
+        onAddCashLog={handleAddCashLog}
+        onCloseShift={handleCloseShift}
+      />
+
+      {/* Keyboard Shortcuts Guide */}
+      <HotkeysModal
+        isOpen={isHotkeysOpen}
+        onClose={() => setIsHotkeysOpen(false)}
+      />
+
+      {/* Logout Confirmation Modal */}
+      <ConfirmationModal
+        id="confirm-logout"
+        isOpen={isLogoutConfirmOpen}
+        title="Konfirmasi Keluar Sesi"
+        message={`Apakah Anda yakin ingin keluar dari akun ${currentUser?.name || ''} (@${currentUser?.username || ''})? Sesi kasir Anda saat ini akan diakhiri.`}
+        confirmText="Ya, Keluar Akun"
+        cancelText="Batal"
+        danger={true}
+        onConfirm={() => {
+          setIsLogoutConfirmOpen(false);
+          handleLogout();
+        }}
+        onCancel={() => setIsLogoutConfirmOpen(false)}
+      />
     </div>
   );
 }

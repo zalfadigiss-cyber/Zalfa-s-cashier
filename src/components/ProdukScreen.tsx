@@ -7,6 +7,7 @@ import {
   Filter,
   Image as ImageIcon,
   AlertTriangle,
+  AlertCircle,
   ChevronLeft,
   ChevronRight,
   X,
@@ -36,6 +37,7 @@ export const ProdukScreen: React.FC<ProdukScreenProps> = ({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
 
   // Form State for Add / Edit
   const [formData, setFormData] = useState({
@@ -64,6 +66,7 @@ export const ProdukScreen: React.FC<ProdukScreenProps> = ({
   // Open modal for Create
   const handleOpenAddModal = () => {
     setEditingProduct(null);
+    setFormError(null);
     setFormData({
       name: '',
       sku: `SKU-${Math.floor(100 + Math.random() * 900)}`,
@@ -80,6 +83,7 @@ export const ProdukScreen: React.FC<ProdukScreenProps> = ({
   // Open modal for Edit
   const handleOpenEditModal = (product: Product) => {
     setEditingProduct(product);
+    setFormError(null);
     setFormData({
       name: product.name,
       sku: product.sku,
@@ -97,7 +101,7 @@ export const ProdukScreen: React.FC<ProdukScreenProps> = ({
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name.trim()) {
-      alert('Nama produk tidak boleh kosong');
+      setFormError('Nama produk wajib diisi.');
       return;
     }
 
@@ -312,6 +316,13 @@ export const ProdukScreen: React.FC<ProdukScreenProps> = ({
             </div>
 
             <form onSubmit={handleFormSubmit} className="p-5 overflow-y-auto space-y-4">
+              {formError && (
+                <div className="p-3 bg-[#ffdad6]/70 border border-[#ba1a1a]/40 rounded-xl flex items-center gap-2 text-xs text-[#ba1a1a]">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{formError}</span>
+                </div>
+              )}
+
               {/* Product Photo Selector */}
               <div>
                 <label className="block text-xs font-bold text-[#554339] mb-1.5">

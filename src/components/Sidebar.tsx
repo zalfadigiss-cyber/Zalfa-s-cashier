@@ -13,8 +13,9 @@ import {
   Store,
   X,
   CreditCard,
+  ShieldCheck,
 } from 'lucide-react';
-import { TabType, StoreSettings } from '../types';
+import { TabType, StoreSettings, AppUser } from '../types';
 
 interface SidebarProps {
   activeTab: TabType;
@@ -22,6 +23,8 @@ interface SidebarProps {
   isOpenMobile: boolean;
   setIsOpenMobile: (open: boolean) => void;
   settings: StoreSettings;
+  currentUser?: AppUser | null;
+  onLogout?: () => void;
   onOpenHelp: () => void;
 }
 
@@ -31,6 +34,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isOpenMobile,
   setIsOpenMobile,
   settings,
+  currentUser,
+  onLogout,
   onOpenHelp,
 }) => {
   const navItems: { id: TabType; label: string; icon: React.ReactNode }[] = [
@@ -117,6 +122,47 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* CTA & Footer */}
         <div className="mt-auto pt-4 border-t border-[#dbc1b5]/50 flex flex-col gap-2">
+          {/* Active User Card */}
+          {currentUser && (
+            <div className="p-2.5 bg-white/70 rounded-xl border border-[#dbc1b5]/60 flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-full overflow-hidden bg-[#e9ded6] border border-[#dbc1b5] shrink-0">
+                {currentUser.avatarUrl ? (
+                  <img
+                    src={currentUser.avatarUrl}
+                    alt={currentUser.name}
+                    referrerPolicy="no-referrer"
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-[#964407] font-bold text-xs">
+                    {currentUser.name.charAt(0)}
+                  </div>
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-bold text-[#201b14] truncate leading-tight">
+                  {currentUser.name}
+                </p>
+                <div className="flex items-center gap-1 mt-0.5">
+                  <span
+                    className={`inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[9px] font-bold uppercase tracking-wider ${
+                      currentUser.role === 'super_admin'
+                        ? 'bg-[#ffbe99] text-[#592600]'
+                        : currentUser.role === 'manager'
+                        ? 'bg-blue-100 text-blue-800'
+                        : currentUser.role === 'admin'
+                        ? 'bg-purple-100 text-purple-800'
+                        : 'bg-emerald-100 text-emerald-800'
+                    }`}
+                  >
+                    {currentUser.role === 'super_admin' && <ShieldCheck className="w-2.5 h-2.5" />}
+                    {currentUser.role.replace('_', ' ')}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Quick Cashier Launch Button */}
           <button
             onClick={() => handleSelectTab('kasir')}
@@ -135,15 +181,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <span>Bantuan</span>
             </button>
             <button
+              id="sidebar-btn-logout"
               onClick={() => {
-                if (window.confirm('Apakah Anda yakin ingin keluar dari sesi kasir?')) {
+                if (onLogout) {
+                  onLogout();
+                } else {
                   handleSelectTab('dashboard');
                 }
               }}
-              className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-[#ba1a1a] hover:bg-[#ffdad6] transition-colors text-left"
+              className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-[#ba1a1a] hover:bg-[#ffdad6] transition-colors text-left cursor-pointer"
             >
               <LogOut className="w-4 h-4 text-[#ba1a1a]" />
-              <span>Keluar</span>
+              <span>Keluar Akun</span>
             </button>
           </div>
         </div>

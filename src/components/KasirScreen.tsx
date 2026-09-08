@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Search,
   ShoppingCart,
@@ -13,30 +13,72 @@ import {
   Printer,
   X,
   Sparkles,
+  Tag,
+  User,
+  Utensils,
+  ShoppingBag,
+  Truck,
+  Bookmark,
+  Scan,
+  Keyboard,
+  Clock,
+  ArrowRight,
+  Gift,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { Category, Product, CartItem, PaymentMethodType, StoreSettings, Transaction } from '../types';
+import {
+  Category,
+  Product,
+  CartItem,
+  PaymentMethodType,
+  StoreSettings,
+  Transaction,
+  Customer,
+  VoucherPromo,
+  HoldOrder,
+  OrderType,
+} from '../types';
 import { formatCurrency, formatNumber, generateTrxId, getIndonesianDate, getIndonesianTime } from '../utils/format';
+import { playScanBeep, playCashChime, playErrorBeep } from '../utils/audio';
+import { ConfirmationModal } from './ConfirmationModal';
 
 interface KasirScreenProps {
   products: Product[];
   categories: Category[];
   settings: StoreSettings;
+  customers: Customer[];
+  vouchers: VoucherPromo[];
+  heldOrders: HoldOrder[];
+  activeBranchName: string;
   onCompleteTransaction: (transaction: Transaction) => void;
   onOpenReceipt: (transaction: Transaction) => void;
+  onHoldOrder: (order: HoldOrder) => void;
+  onRestoreHeldOrder: (orderId: string) => void;
+  onDeleteHeldOrder: (orderId: string) => void;
+  onOpenHotkeysGuide: () => void;
 }
 
 export const KasirScreen: React.FC<KasirScreenProps> = ({
   products,
   categories,
   settings,
+  customers,
+  vouchers,
+  heldOrders,
+  activeBranchName,
   onCompleteTransaction,
   onOpenReceipt,
+  onHoldOrder,
+  onRestoreHeldOrder,
+  onDeleteHeldOrder,
+  onOpenHotkeysGuide,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Cart state
   const [cart, setCart] = useState<CartItem[]>([
-    // Pre-populate with items to match initial screenshot feel if desired
     {
       product: products.find((p) => p.sku === 'MIN-KSGA-001') || products[0],
       quantity: 2,
@@ -47,12 +89,50 @@ export const KasirScreen: React.FC<KasirScreenProps> = ({
     },
   ]);
 
+  // Order Details
+  const [orderType, setOrderType] = useState<OrderType>('dine_in');
+  const [tableNumber, setTableNumber] = useState<string>('04');
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('guest');
+  const [usePointsDiscount, setUsePointsDiscount] = useState<boolean>(false);
+
+  // Promo Code
+  const [voucherInput, setVoucherInput] = useState<string>('');
+  const [appliedVoucher, setAppliedVoucher] = useState<VoucherPromo | null>(null);
+  const [voucherError, setVoucherError] = useState<string>('');
+
   // Payment Modal state
   const [isPaymentOpen, setIsPaymentOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethodType>('tunai');
   const [cashGiven, setCashGiven] = useState<number>(60000);
-  const [showToast, setShowToast] = useState(false);
+  const [toastNotification, setToastNotification] = useState<{ message: string; type: 'error' | 'success' | 'info' } | null>(null);
   const [mobileCartOpen, setMobileCartOpen] = useState(false);
+  const [isClearConfirmOpen, setIsClearConfirmOpen] = useState(false);
+
+  const triggerToast = (message: string, type: 'error' | 'success' | 'info' = 'info') => {
+    setToastNotification({ message, type });
+  };
+
+  useEffect(() => {
+    if (toastNotification) {
+      const timer = setTimeout(() => {
+        setToastNotification(null);
+      }, 3500);
+      return () => clearTimeout(timer);
+    }
+  }, [toastNotification]);
+
+  // Held Orders Modal state
+  const [isHeldModalOpen, setIsHeldModalOpen] = useState(false);
+  const [holdCustomerName, setHoldCustomerName] = useState<string>('');
+
+  // Barcode quick scan simulator
+  const [isBarcodeSimOpen, setIsBarcodeSimOpen] = useState(false);
+  const [barcodeInput, setBarcodeInput] = useState('');
+
+  // Selected customer object
+  const activeCustomer = useMemo(() => {
+    return customers.find((c) => c.id === selectedCustomerId) || null;
+  }, [customers, selectedCustomerId]);
 
   // Filtered Products
   const filteredProducts = useMemo(() => {
@@ -71,22 +151,90 @@ export const KasirScreen: React.FC<KasirScreenProps> = ({
     return cart.reduce((acc, item) => acc + item.product.price * item.quantity, 0);
   }, [cart]);
 
-  const taxAmount = useMemo(() => {
-    return Math.round((subtotal * settings.defaultTaxPercent) / 100);
-  }, [subtotal, settings.defaultTaxPercent]);
+  // Member Tier discount (VIP: 15%, Gold: 10%, Silver: 5%)
+  const memberDiscount = useMemo(() => {
+    if (!activeCustomer) return 0;
+    if (activeCustomer.tier === 'VIP') return Math.round(subtotal * 0.15);
+    if (activeCustomer.tier === 'Gold') return Math.round(subtotal * 0.1);
+    if (activeCustomer.tier === 'Silver') return Math.round(subtotal * 0.05);
+    return 0;
+  }, [activeCustomer, subtotal]);
 
-  const totalAmount = subtotal + taxAmount;
+  // Voucher discount
+  const voucherDiscount = useMemo(() => {
+    if (!appliedVoucher) return 0;
+    if (subtotal < appliedVoucher.minPurchase) return 0;
+    if (appliedVoucher.type === 'percent') {
+      return Math.round((subtotal * appliedVoucher.value) / 100);
+    }
+    return Math.min(subtotal, appliedVoucher.value);
+  }, [appliedVoucher, subtotal]);
+
+  // Points Discount (1 point = Rp 100)
+  const pointsDiscount = useMemo(() => {
+    if (!usePointsDiscount || !activeCustomer || activeCustomer.points <= 0) return 0;
+    const maxDiscountFromPoints = activeCustomer.points * 100;
+    return Math.min(subtotal, maxDiscountFromPoints);
+  }, [usePointsDiscount, activeCustomer, subtotal]);
+
+  const totalDiscount = Math.min(subtotal, memberDiscount + voucherDiscount + pointsDiscount);
+
+  const taxableAmount = Math.max(0, subtotal - totalDiscount);
+  const taxAmount = useMemo(() => {
+    return Math.round((taxableAmount * settings.defaultTaxPercent) / 100);
+  }, [taxableAmount, settings.defaultTaxPercent]);
+
+  const totalAmount = taxableAmount + taxAmount;
   const totalCartItems = cart.reduce((acc, item) => acc + item.quantity, 0);
+
+  // Keyboard shortcut listener
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // F2: focus search
+      if (e.key === 'F2') {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+      // F4: hold order
+      if (e.key === 'F4') {
+        e.preventDefault();
+        if (cart.length > 0) {
+          handleHoldOrder();
+        }
+      }
+      // F8: payment
+      if (e.key === 'F8') {
+        e.preventDefault();
+        if (cart.length > 0 && !isPaymentOpen) {
+          handleOpenPayment();
+        }
+      }
+      // Esc: close modals
+      if (e.key === 'Escape') {
+        setIsPaymentOpen(false);
+        setIsHeldModalOpen(false);
+        setIsBarcodeSimOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [cart, isPaymentOpen]);
 
   // Cart Handlers
   const handleAddToCart = (product: Product) => {
-    if (product.stock <= 0) return;
+    if (product.stock <= 0) {
+      playErrorBeep(settings.soundEffectsEnabled);
+      return;
+    }
+
+    playScanBeep(settings.soundEffectsEnabled);
 
     setCart((prev) => {
       const existing = prev.find((item) => item.product.id === product.id);
       if (existing) {
         if (existing.quantity >= product.stock) {
-          alert(`Stok tidak mencukupi. Sisa stok: ${product.stock}`);
+          playErrorBeep(settings.soundEffectsEnabled);
+          triggerToast(`Stok tidak mencukupi. Sisa stok: ${product.stock}`, 'error');
           return prev;
         }
         return prev.map((item) =>
@@ -100,13 +248,15 @@ export const KasirScreen: React.FC<KasirScreenProps> = ({
   };
 
   const handleUpdateQuantity = (productId: string, delta: number) => {
+    playScanBeep(settings.soundEffectsEnabled);
     setCart((prev) => {
       return prev
         .map((item) => {
           if (item.product.id === productId) {
             const newQty = item.quantity + delta;
             if (newQty > item.product.stock) {
-              alert(`Stok maksimal: ${item.product.stock}`);
+              playErrorBeep(settings.soundEffectsEnabled);
+              triggerToast(`Batas stok tercapai. Maksimal: ${item.product.stock}`, 'error');
               return item;
             }
             return { ...item, quantity: newQty };
@@ -119,26 +269,106 @@ export const KasirScreen: React.FC<KasirScreenProps> = ({
 
   const handleClearCart = () => {
     if (cart.length === 0) return;
-    if (window.confirm('Kosongkan semua pesanan di keranjang?')) {
-      setCart([]);
+    setIsClearConfirmOpen(true);
+  };
+
+  const executeClearCart = () => {
+    setCart([]);
+    setAppliedVoucher(null);
+    setUsePointsDiscount(false);
+    setIsClearConfirmOpen(false);
+    triggerToast('Keranjang kasir telah dikosongkan.', 'info');
+  };
+
+  // Hold Order handler
+  const handleHoldOrder = () => {
+    if (cart.length === 0) return;
+    const labelName =
+      activeCustomer?.name ||
+      (orderType === 'dine_in' ? `Meja ${tableNumber}` : 'Pelanggan Umum');
+
+    const newHold: HoldOrder = {
+      id: 'hold-' + Date.now(),
+      orderNumber: `HOLD-#${Math.floor(Math.random() * 900) + 100}`,
+      customerName: labelName,
+      orderType,
+      tableNumber: orderType === 'dine_in' ? tableNumber : undefined,
+      items: [...cart],
+      subtotal,
+      tax: taxAmount,
+      total: totalAmount,
+      timestamp: `${getIndonesianDate()}, ${getIndonesianTime()}`,
+    };
+
+    onHoldOrder(newHold);
+    setCart([]);
+    setAppliedVoucher(null);
+    setUsePointsDiscount(false);
+    triggerToast('Pesanan berhasil ditahan sementara (Hold Order).', 'info');
+  };
+
+  // Apply Voucher
+  const handleApplyVoucher = (e: React.FormEvent) => {
+    e.preventDefault();
+    setVoucherError('');
+    const cleanCode = voucherInput.trim().toUpperCase();
+    const found = vouchers.find((v) => v.code.toUpperCase() === cleanCode);
+
+    if (!found) {
+      setVoucherError('Kode voucher tidak valid');
+      playErrorBeep(settings.soundEffectsEnabled);
+      return;
     }
+    if (subtotal < found.minPurchase) {
+      setVoucherError(`Min. belanja ${formatCurrency(found.minPurchase)}`);
+      playErrorBeep(settings.soundEffectsEnabled);
+      return;
+    }
+
+    setAppliedVoucher(found);
+    setVoucherInput('');
+    playScanBeep(settings.soundEffectsEnabled);
   };
 
   const handleOpenPayment = () => {
     if (cart.length === 0) return;
-    setCashGiven(Math.ceil(totalAmount / 10000) * 10000 || totalAmount);
+    // suggest round cash denomination
+    const suggested = Math.ceil(totalAmount / 10000) * 10000 || totalAmount;
+    setCashGiven(suggested);
     setIsPaymentOpen(true);
   };
 
   // Change calculation
   const cashChange = Math.max(0, cashGiven - totalAmount);
 
+  // Barcode rapid scan simulation
+  const handleSimulateScan = (e: React.FormEvent) => {
+    e.preventDefault();
+    const found = products.find(
+      (p) =>
+        p.sku.toLowerCase() === barcodeInput.trim().toLowerCase() ||
+        p.name.toLowerCase().includes(barcodeInput.trim().toLowerCase())
+    );
+    if (found) {
+      handleAddToCart(found);
+      setBarcodeInput('');
+      setIsBarcodeSimOpen(false);
+      triggerToast(`Produk "${found.name}" berhasil dimasukkan ke keranjang.`, 'success');
+    } else {
+      playErrorBeep(settings.soundEffectsEnabled);
+      triggerToast('SKU atau kode barcode tidak ditemukan di katalog produk.', 'error');
+    }
+  };
+
   // Finalize payment
   const handleProcessPayment = () => {
     if (paymentMethod === 'tunai' && cashGiven < totalAmount) {
-      alert('Jumlah uang yang diterima kurang dari total tagihan!');
+      playErrorBeep(settings.soundEffectsEnabled);
+      triggerToast('Nominal tunai yang diterima belum mencukupi total tagihan.', 'error');
       return;
     }
+
+    const earnedPoints = Math.floor(totalAmount / 10000);
 
     const newTransaction: Transaction = {
       id: 'trx-' + Date.now(),
@@ -148,12 +378,20 @@ export const KasirScreen: React.FC<KasirScreenProps> = ({
       cashierName: settings.userName,
       paymentMethod,
       subtotal,
-      discount: 0,
+      discount: totalDiscount,
       tax: taxAmount,
       total: totalAmount,
       cashAmountPaid: paymentMethod === 'tunai' ? cashGiven : totalAmount,
       cashChange: paymentMethod === 'tunai' ? cashChange : 0,
       status: 'sukses',
+      orderType,
+      tableNumber: orderType === 'dine_in' ? tableNumber : undefined,
+      customerName: activeCustomer?.name,
+      customerPhone: activeCustomer?.phone,
+      voucherCode: appliedVoucher?.code,
+      pointsEarned: earnedPoints,
+      pointsUsed: usePointsDiscount ? activeCustomer?.points : 0,
+      branchName: activeBranchName,
       items: cart.map((item) => ({
         productId: item.product.id,
         productName: item.product.name,
@@ -163,6 +401,9 @@ export const KasirScreen: React.FC<KasirScreenProps> = ({
         total: item.product.price * item.quantity,
       })),
     };
+
+    // Play POS audio chime
+    playCashChime(settings.soundEffectsEnabled);
 
     // Trigger celebration confetti
     try {
@@ -179,59 +420,152 @@ export const KasirScreen: React.FC<KasirScreenProps> = ({
     onCompleteTransaction(newTransaction);
     setIsPaymentOpen(false);
     setCart([]);
-    setShowToast(true);
+    setAppliedVoucher(null);
+    setUsePointsDiscount(false);
+    triggerToast('Transaksi kasir berhasil diselesaikan!', 'success');
 
-    // Auto open receipt or trigger print
     if (settings.autoPrintReceipt) {
       onOpenReceipt(newTransaction);
     }
-
-    setTimeout(() => {
-      setShowToast(false);
-    }, 3500);
   };
 
   return (
-    <div className="flex-1 flex flex-col md:flex-row h-full overflow-hidden bg-[#fef1e7]/60">
-      {/* LEFT COLUMN: Product Catalog (70%) */}
-      <section className="flex-1 flex flex-col h-full overflow-hidden bg-[#fff8f4] p-4 md:p-6 lg:p-8">
-        {/* Controls: Search & Category Filter Pills */}
-        <div className="flex flex-col sm:flex-row gap-3 mb-6 shrink-0">
-          <div className="relative flex-1 group">
-            <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-[#887368] group-focus-within:text-[#964407] transition-colors" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Cari nama produk, SKU..."
-              className="w-full pl-9.5 pr-4 py-2.5 bg-white border border-[#dbc1b5] rounded-xl text-sm text-[#201b14] placeholder-[#887368] focus:outline-none focus:border-[#964407] focus:ring-2 focus:ring-[#ffdbca] shadow-2xs transition-all"
-            />
+    <div className="flex-1 flex flex-col md:flex-row h-full overflow-hidden bg-[#fef1e7]/60 relative">
+      {/* LEFT COLUMN: Product Catalog (68%) */}
+      <section className="flex-1 flex flex-col h-full overflow-hidden bg-[#fff8f4] p-3 sm:p-5 lg:p-6">
+        {/* Top Control Ribbon */}
+        <div className="flex flex-col gap-3 mb-4 shrink-0">
+          {/* Order Type Selector & Shortcuts Bar */}
+          <div className="flex flex-wrap items-center justify-between gap-2 bg-white p-2.5 rounded-2xl border border-[#dbc1b5]/50 shadow-xs">
+            {/* Order Type Pills */}
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setOrderType('dine_in')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                  orderType === 'dine_in'
+                    ? 'bg-[#964407] text-white shadow-xs'
+                    : 'text-[#645d57] hover:bg-[#f8ece1]'
+                }`}
+              >
+                <Utensils className="w-3.5 h-3.5" />
+                <span>Dine In</span>
+              </button>
+              <button
+                onClick={() => setOrderType('take_away')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                  orderType === 'take_away'
+                    ? 'bg-[#964407] text-white shadow-xs'
+                    : 'text-[#645d57] hover:bg-[#f8ece1]'
+                }`}
+              >
+                <ShoppingBag className="w-3.5 h-3.5" />
+                <span>Take Away</span>
+              </button>
+              <button
+                onClick={() => setOrderType('delivery')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                  orderType === 'delivery'
+                    ? 'bg-[#964407] text-white shadow-xs'
+                    : 'text-[#645d57] hover:bg-[#f8ece1]'
+                }`}
+              >
+                <Truck className="w-3.5 h-3.5" />
+                <span>Delivery</span>
+              </button>
+
+              {orderType === 'dine_in' && (
+                <div className="flex items-center gap-1 ml-2 bg-[#f8ece1] px-2 py-1 rounded-lg">
+                  <span className="text-[11px] font-bold text-[#554339]">Meja:</span>
+                  <input
+                    type="text"
+                    value={tableNumber}
+                    onChange={(e) => setTableNumber(e.target.value)}
+                    className="w-10 bg-white border border-[#dbc1b5] rounded text-center text-xs font-bold text-[#201b14] focus:outline-none"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Quick Actions: Held Orders & Scan Simulator */}
+            <div className="flex items-center gap-1.5">
+              {/* Held Orders Button */}
+              <button
+                onClick={() => setIsHeldModalOpen(true)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                  heldOrders.length > 0
+                    ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                    : 'bg-[#f8ece1] text-[#554339] hover:bg-[#ecdccf]'
+                }`}
+              >
+                <Bookmark className="w-3.5 h-3.5 text-amber-700" />
+                <span>Bill Tertahan</span>
+                {heldOrders.length > 0 && (
+                  <span className="w-4 h-4 rounded-full bg-amber-600 text-white text-[10px] flex items-center justify-center font-bold">
+                    {heldOrders.length}
+                  </span>
+                )}
+              </button>
+
+              {/* Rapid Barcode Simulator */}
+              <button
+                onClick={() => setIsBarcodeSimOpen(true)}
+                className="px-3 py-1.5 bg-[#f8ece1] hover:bg-[#ecdccf] text-[#554339] rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
+                title="Scan Barcode SKU Cepat"
+              >
+                <Scan className="w-3.5 h-3.5 text-[#964407]" />
+                <span className="hidden sm:inline">Scan SKU</span>
+              </button>
+
+              {/* Hotkeys helper */}
+              <button
+                onClick={onOpenHotkeysGuide}
+                className="p-1.5 text-[#887368] hover:text-[#964407] hover:bg-[#f8ece1] rounded-lg transition-colors cursor-pointer"
+                title="Keyboard Shortcuts (F2, F4, F8)"
+              >
+                <Keyboard className="w-4 h-4" />
+              </button>
+            </div>
           </div>
 
-          <div className="flex gap-2 overflow-x-auto pb-1 sm:pb-0 scrollbar-hide">
-            <button
-              onClick={() => setSelectedCategory('all')}
-              className={`px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all shadow-2xs ${
-                selectedCategory === 'all'
-                  ? 'bg-[#964407] text-white'
-                  : 'bg-white border border-[#dbc1b5] text-[#554339] hover:bg-[#f8ece1]'
-              }`}
-            >
-              Semua Kategori
-            </button>
-            {categories.map((cat) => (
+          {/* Search & Category Pills */}
+          <div className="flex flex-col sm:flex-row gap-2.5">
+            <div className="relative flex-1 group">
+              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-[#887368] group-focus-within:text-[#964407] transition-colors" />
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Cari produk, nama, atau SKU (Tekan F2)..."
+                className="w-full pl-9.5 pr-4 py-2 bg-white border border-[#dbc1b5] rounded-xl text-xs text-[#201b14] placeholder-[#887368] focus:outline-none focus:border-[#964407] focus:ring-2 focus:ring-[#ffdbca] shadow-2xs transition-all"
+              />
+            </div>
+
+            <div className="flex gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-hide">
               <button
-                key={cat.id}
-                onClick={() => setSelectedCategory(cat.id)}
-                className={`px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all shadow-2xs ${
-                  selectedCategory === cat.id
+                onClick={() => setSelectedCategory('all')}
+                className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all shadow-2xs cursor-pointer ${
+                  selectedCategory === 'all'
                     ? 'bg-[#964407] text-white'
                     : 'bg-white border border-[#dbc1b5] text-[#554339] hover:bg-[#f8ece1]'
                 }`}
               >
-                {cat.name}
+                Semua Menu
               </button>
-            ))}
+              {categories.map((cat) => (
+                <button
+                  key={cat.id}
+                  onClick={() => setSelectedCategory(cat.id)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all shadow-2xs cursor-pointer ${
+                    selectedCategory === cat.id
+                      ? 'bg-[#964407] text-white'
+                      : 'bg-white border border-[#dbc1b5] text-[#554339] hover:bg-[#f8ece1]'
+                  }`}
+                >
+                  {cat.name}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -240,11 +574,11 @@ export const KasirScreen: React.FC<KasirScreenProps> = ({
           {filteredProducts.length === 0 ? (
             <div className="h-64 flex flex-col items-center justify-center text-center p-6 text-[#645d57]">
               <Search className="w-10 h-10 text-[#dbc1b5] mb-2" />
-              <p className="font-semibold text-sm">Tidak ada produk yang cocok</p>
+              <p className="font-semibold text-sm">Tidak ada menu yang cocok</p>
               <p className="text-xs text-[#887368] mt-1">Coba kata kunci lain atau pilih semua kategori</p>
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 gap-3.5 md:gap-4 content-start">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 gap-3 md:gap-3.5 content-start">
               {filteredProducts.map((product) => {
                 const isOutOfStock = product.stock <= 0;
                 const isLowStock = product.stock > 0 && product.stock <= product.minStock;
@@ -260,11 +594,11 @@ export const KasirScreen: React.FC<KasirScreenProps> = ({
                     }`}
                   >
                     {/* Image Box */}
-                    <div className="aspect-square bg-[#f8ece1] w-full relative overflow-hidden flex items-center justify-center p-3">
+                    <div className="aspect-square bg-[#f8ece1] w-full relative overflow-hidden flex items-center justify-center p-2.5">
                       {isLowStock && (
                         <div className="absolute top-2 right-2 bg-[#ffdad6] text-[#93000a] px-2 py-0.5 rounded-md text-[10px] font-bold z-10 shadow-xs flex items-center gap-1 border border-[#ba1a1a]/20">
                           <AlertTriangle className="w-3 h-3" />
-                          <span>Stok Menipis</span>
+                          <span>Sisa {product.stock}</span>
                         </div>
                       )}
                       {isOutOfStock && (
@@ -283,26 +617,26 @@ export const KasirScreen: React.FC<KasirScreenProps> = ({
                     </div>
 
                     {/* Info */}
-                    <div className="p-3 flex-1 flex flex-col justify-between">
+                    <div className="p-2.5 flex-1 flex flex-col justify-between">
                       <div>
                         <span className="text-[10px] font-semibold text-[#887368] uppercase tracking-wider block mb-0.5">
                           {product.sku}
                         </span>
-                        <h3 className="text-xs md:text-sm font-bold text-[#201b14] line-clamp-2 leading-tight">
+                        <h3 className="text-xs font-bold text-[#201b14] line-clamp-2 leading-tight">
                           {product.name}
                         </h3>
                       </div>
 
-                      <div className="mt-3 flex items-end justify-between pt-2 border-t border-[#dbc1b5]/20">
-                        <span className="font-price font-extrabold text-[#964407] text-xs md:text-sm">
+                      <div className="mt-2.5 flex items-end justify-between pt-1.5 border-t border-[#dbc1b5]/20">
+                        <span className="font-price font-extrabold text-[#964407] text-xs sm:text-sm">
                           {formatCurrency(product.price)}
                         </span>
                         <span
-                          className={`text-[11px] font-semibold ${
+                          className={`text-[10px] font-semibold ${
                             isOutOfStock
                               ? 'text-[#ba1a1a]'
                               : isLowStock
-                              ? 'text-[#d97706]'
+                              ? 'text-[#ba1a1a]'
                               : 'text-[#645d57]'
                           }`}
                         >
@@ -318,380 +652,638 @@ export const KasirScreen: React.FC<KasirScreenProps> = ({
         </div>
       </section>
 
-      {/* RIGHT COLUMN: Shopping Cart Panel (30%) */}
+      {/* RIGHT COLUMN: Order / Cart Details (32%) */}
       <aside
-        className={`fixed md:relative bottom-0 right-0 w-full md:w-[340px] lg:w-[380px] h-[85vh] md:h-full bg-white border-t md:border-t-0 md:border-l border-[#dbc1b5]/60 shadow-2xl md:shadow-none flex flex-col z-40 transition-transform duration-300 rounded-t-3xl md:rounded-none ${
-          mobileCartOpen ? 'translate-y-0' : 'translate-y-full md:translate-y-0'
+        className={`fixed inset-y-0 right-0 z-40 w-full sm:w-96 md:w-[380px] lg:w-[410px] bg-white border-l border-[#dbc1b5]/50 flex flex-col transition-transform duration-300 md:relative md:translate-x-0 ${
+          mobileCartOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
-        {/* Mobile Pull Handle */}
-        <div
-          className="w-full flex justify-center py-2.5 md:hidden cursor-pointer bg-white rounded-t-3xl border-b border-[#dbc1b5]/30"
-          onClick={() => setMobileCartOpen(false)}
-        >
-          <div className="w-12 h-1.5 bg-[#dbc1b5] rounded-full" />
-        </div>
-
         {/* Cart Header */}
-        <div className="px-5 py-4 border-b border-[#dbc1b5]/40 flex justify-between items-center bg-white shrink-0">
-          <div className="flex items-center gap-2">
-            <ShoppingCart className="w-5 h-5 text-[#964407]" />
-            <h2 className="font-serif-header text-xl font-bold text-[#201b14]">
-              Pesanan Saat Ini
-            </h2>
-            {cart.length > 0 && (
-              <span className="bg-[#ffdbca] text-[#964407] text-[11px] font-bold px-2 py-0.5 rounded-full">
-                {totalCartItems}
-              </span>
-            )}
+        <div className="p-4 bg-[#fff8f4] border-b border-[#dbc1b5]/40 flex flex-col gap-2 shrink-0">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <ShoppingCart className="w-5 h-5 text-[#964407]" />
+              <h2 className="font-serif-header text-lg font-bold text-[#201b14]">
+                Pesanan Aktif ({totalCartItems})
+              </h2>
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={handleClearCart}
+                disabled={cart.length === 0}
+                className="p-1.5 text-[#887368] hover:text-[#ba1a1a] rounded-lg hover:bg-[#ffdad6]/30 transition-colors disabled:opacity-40 cursor-pointer"
+                title="Kosongkan Keranjang"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setMobileCartOpen(false)}
+                className="p-1.5 text-[#645d57] md:hidden rounded-lg hover:bg-[#ece0d6]"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
           </div>
-          {cart.length > 0 && (
-            <button
-              onClick={handleClearCart}
-              className="p-1.5 text-[#ba1a1a] hover:bg-[#ffdad6] rounded-lg transition-colors"
-              title="Kosongkan Keranjang"
+
+          {/* Customer / Membership selector */}
+          <div className="flex items-center gap-2 pt-1 border-t border-[#dbc1b5]/30">
+            <User className="w-3.5 h-3.5 text-[#964407] shrink-0" />
+            <select
+              value={selectedCustomerId}
+              onChange={(e) => {
+                setSelectedCustomerId(e.target.value);
+                setUsePointsDiscount(false);
+              }}
+              className="flex-1 bg-white border border-[#dbc1b5] rounded-lg px-2 py-1 text-xs text-[#201b14] font-medium focus:outline-none focus:border-[#964407]"
             >
-              <Trash2 className="w-4 h-4" />
-            </button>
+              <option value="guest">Pelanggan Umum (Guest)</option>
+              {customers.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} ({c.tier} &bull; {c.points} Poin)
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Customer Loyalty Tier Badge */}
+          {activeCustomer && (
+            <div className="flex items-center justify-between bg-[#f8ece1] px-2.5 py-1.5 rounded-lg text-xs">
+              <div className="flex items-center gap-1.5">
+                <span className="px-1.5 py-0.5 bg-[#964407] text-white rounded text-[10px] font-bold">
+                  {activeCustomer.tier}
+                </span>
+                <span className="text-[#554339] text-[11px]">
+                  Poin: <strong>{activeCustomer.points}</strong>
+                </span>
+              </div>
+              {activeCustomer.points > 0 && (
+                <label className="flex items-center gap-1 text-[11px] font-semibold text-[#964407] cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={usePointsDiscount}
+                    onChange={(e) => setUsePointsDiscount(e.target.checked)}
+                    className="w-3 h-3 text-[#964407]"
+                  />
+                  <span>Tukar Poin</span>
+                </label>
+              )}
+            </div>
           )}
         </div>
 
-        {/* Cart Items List */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-[#fff8f4]/60">
+        {/* Cart Item List */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
           {cart.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-center p-6 text-[#645d57]">
-              <ShoppingCart className="w-12 h-12 text-[#dbc1b5] mb-2 stroke-1" />
-              <p className="text-sm font-bold text-[#201b14]">Keranjang Kosong</p>
-              <p className="text-xs text-[#887368] mt-1">
-                Pilih produk dari daftar di sebelah kiri untuk menambahkan ke pesanan.
-              </p>
+            <div className="h-full flex flex-col items-center justify-center text-center text-[#887368] p-6 space-y-2">
+              <ShoppingCart className="w-12 h-12 text-[#dbc1b5]" />
+              <p className="font-semibold text-xs text-[#554339]">Keranjang masih kosong</p>
+              <p className="text-[11px]">Klik menu di sebelah kiri untuk menambahkan ke pesanan</p>
             </div>
           ) : (
-            cart.map((item) => (
-              <div
-                key={item.product.id}
-                className="bg-white p-3 rounded-xl shadow-xs border border-[#dbc1b5]/40 flex items-center gap-3"
-              >
-                <div className="w-12 h-12 rounded-lg bg-[#f8ece1] p-1 shrink-0 flex items-center justify-center border border-[#dbc1b5]/30">
-                  <img
-                    src={item.product.imageUrl}
-                    alt={item.product.name}
-                    referrerPolicy="no-referrer"
-                    className="w-full h-full object-contain"
-                  />
-                </div>
+            cart.map((item) => {
+              const itemTotal = item.product.price * item.quantity;
+              return (
+                <div
+                  key={item.product.id}
+                  className="bg-[#fef1e7]/40 rounded-xl p-3 border border-[#dbc1b5]/40 flex gap-2.5 items-center justify-between shadow-2xs"
+                >
+                  <div className="min-w-0 flex-1">
+                    <h4 className="text-xs font-bold text-[#201b14] truncate">
+                      {item.product.name}
+                    </h4>
+                    <span className="font-price font-extrabold text-xs text-[#964407] block mt-0.5">
+                      {formatCurrency(item.product.price)}
+                    </span>
+                  </div>
 
-                <div className="flex-1 min-w-0">
-                  <h4 className="text-xs font-bold text-[#201b14] truncate">
-                    {item.product.name}
-                  </h4>
-                  <p className="font-price font-extrabold text-[#964407] text-xs mt-0.5">
-                    {formatCurrency(item.product.price)}
-                  </p>
-                </div>
+                  <div className="flex items-center gap-1.5 bg-white border border-[#dbc1b5] rounded-lg p-0.5 shrink-0">
+                    <button
+                      onClick={() => handleUpdateQuantity(item.product.id, -1)}
+                      className="p-1 text-[#645d57] hover:text-[#ba1a1a] hover:bg-[#ffdad6]/40 rounded transition-colors cursor-pointer"
+                    >
+                      <Minus className="w-3 h-3" />
+                    </button>
+                    <span className="w-6 text-center text-xs font-bold font-price text-[#201b14]">
+                      {item.quantity}
+                    </span>
+                    <button
+                      onClick={() => handleUpdateQuantity(item.product.id, 1)}
+                      className="p-1 text-[#645d57] hover:text-[#964407] hover:bg-[#ffdbca]/40 rounded transition-colors cursor-pointer"
+                    >
+                      <Plus className="w-3 h-3" />
+                    </button>
+                  </div>
 
-                {/* Quantity Controls */}
-                <div className="flex items-center gap-1.5 bg-[#f8ece1] border border-[#dbc1b5]/40 rounded-lg p-1">
-                  <button
-                    onClick={() => handleUpdateQuantity(item.product.id, -1)}
-                    className="w-6 h-6 flex items-center justify-center text-[#201b14] hover:bg-white rounded transition-colors active:scale-90"
-                  >
-                    <Minus className="w-3.5 h-3.5" />
-                  </button>
-                  <span className="font-price text-xs font-bold w-4 text-center text-[#201b14]">
-                    {item.quantity}
-                  </span>
-                  <button
-                    onClick={() => handleUpdateQuantity(item.product.id, 1)}
-                    className="w-6 h-6 flex items-center justify-center text-[#201b14] hover:bg-white rounded transition-colors active:scale-90"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                  </button>
+                  <div className="text-right font-price font-extrabold text-xs text-[#201b14] min-w-[70px]">
+                    {formatCurrency(itemTotal)}
+                  </div>
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
 
-        {/* Cart Summary & Action Button */}
-        <div className="bg-white p-5 border-t border-[#dbc1b5]/50 shadow-sm shrink-0">
-          <div className="space-y-2 mb-4 text-xs font-medium text-[#554339]">
-            <div className="flex justify-between">
-              <span>Subtotal ({totalCartItems} item)</span>
-              <span className="font-price font-semibold text-[#201b14]">{formatCurrency(subtotal)}</span>
+        {/* Voucher Promo Input */}
+        <div className="px-4 py-2 border-t border-[#dbc1b5]/30 bg-[#fff8f4]/60">
+          {appliedVoucher ? (
+            <div className="flex items-center justify-between p-2 bg-emerald-50 border border-emerald-200 rounded-lg text-xs">
+              <div className="flex items-center gap-1.5 text-emerald-800">
+                <Tag className="w-3.5 h-3.5 text-emerald-600" />
+                <span className="font-bold">{appliedVoucher.code}</span>
+                <span className="text-[11px] text-emerald-700">
+                  (-{formatCurrency(voucherDiscount)})
+                </span>
+              </div>
+              <button
+                onClick={() => setAppliedVoucher(null)}
+                className="text-emerald-800 hover:text-rose-600 p-0.5"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
             </div>
+          ) : (
+            <form onSubmit={handleApplyVoucher} className="flex gap-1.5">
+              <input
+                type="text"
+                placeholder="Kode Promo (HEMAT10, POTONG15K)..."
+                value={voucherInput}
+                onChange={(e) => setVoucherInput(e.target.value)}
+                className="flex-1 px-2.5 py-1.5 bg-white border border-[#dbc1b5] rounded-lg text-xs text-[#201b14] placeholder-[#887368] uppercase focus:outline-none focus:border-[#964407]"
+              />
+              <button
+                type="submit"
+                className="px-3 py-1.5 bg-[#964407] text-white rounded-lg text-xs font-bold hover:bg-[#773300] transition-colors cursor-pointer"
+              >
+                Terapkan
+              </button>
+            </form>
+          )}
+          {voucherError && (
+            <p className="text-[10px] text-[#ba1a1a] mt-1 font-semibold">{voucherError}</p>
+          )}
+        </div>
+
+        {/* Cart Calculations Footer */}
+        <div className="p-4 bg-[#fff8f4] border-t border-[#dbc1b5]/40 space-y-2 shrink-0">
+          <div className="space-y-1.5 text-xs text-[#554339]">
             <div className="flex justify-between">
-              <span>Pajak ({settings.defaultTaxPercent}%)</span>
-              <span className="font-price font-semibold text-[#201b14]">{formatCurrency(taxAmount)}</span>
+              <span>Subtotal:</span>
+              <span className="font-semibold font-price text-[#201b14]">
+                {formatCurrency(subtotal)}
+              </span>
             </div>
-            <div className="flex justify-between items-end pt-2 border-t border-[#dbc1b5]/40 mt-1">
-              <span className="font-serif-header text-lg font-bold text-[#201b14]">Total</span>
-              <span className="font-price text-2xl lg:text-3xl font-extrabold text-[#964407] tracking-tight">
+
+            {totalDiscount > 0 && (
+              <div className="flex justify-between text-emerald-700 font-semibold">
+                <span>Total Diskon (Member/Promo/Poin):</span>
+                <span className="font-price">-{formatCurrency(totalDiscount)}</span>
+              </div>
+            )}
+
+            <div className="flex justify-between">
+              <span>PPN ({settings.defaultTaxPercent}%):</span>
+              <span className="font-semibold font-price text-[#201b14]">
+                {formatCurrency(taxAmount)}
+              </span>
+            </div>
+
+            <div className="pt-2 border-t border-[#dbc1b5]/40 flex justify-between items-baseline">
+              <span className="font-serif-header text-sm font-bold text-[#201b14]">
+                Total Tagihan:
+              </span>
+              <span className="font-price text-xl font-extrabold text-[#964407]">
                 {formatCurrency(totalAmount)}
               </span>
             </div>
           </div>
 
-          <button
-            disabled={cart.length === 0}
-            onClick={handleOpenPayment}
-            className="w-full py-3.5 bg-[#645d57] hover:bg-[#4c4640] disabled:bg-[#dbc1b5] disabled:cursor-not-allowed text-white rounded-xl font-serif-header text-lg font-bold flex justify-center items-center gap-2 transition-all active:scale-[0.98] shadow-sm tracking-wide cursor-pointer"
-          >
-            <Banknote className="w-5 h-5" />
-            <span>BAYAR SEKARANG</span>
-          </button>
+          {/* Hold and Checkout CTA */}
+          <div className="grid grid-cols-3 gap-2 pt-2">
+            <button
+              type="button"
+              onClick={handleHoldOrder}
+              disabled={cart.length === 0}
+              className="col-span-1 py-3 px-2 border border-[#dbc1b5] bg-white hover:bg-[#f8ece1] text-[#554339] rounded-xl text-xs font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed flex flex-col items-center justify-center gap-0.5 cursor-pointer shadow-2xs"
+              title="Tahan Pesanan (F4)"
+            >
+              <Bookmark className="w-4 h-4 text-[#964407]" />
+              <span>Tahan (F4)</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleOpenPayment}
+              disabled={cart.length === 0}
+              className="col-span-2 py-3 bg-[#964407] hover:bg-[#773300] text-white rounded-xl font-serif-header text-sm font-bold tracking-wide shadow-md hover:shadow-lg transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <CreditCard className="w-4 h-4" />
+              <span>BAYAR (F8)</span>
+            </button>
+          </div>
         </div>
       </aside>
 
-      {/* Mobile Floating Cart Summary Bar */}
-      <div
-        onClick={() => setMobileCartOpen(true)}
-        className="md:hidden fixed bottom-4 left-4 right-4 bg-[#964407] text-white rounded-2xl p-4 shadow-xl flex justify-between items-center z-30 active:scale-[0.98] transition-transform cursor-pointer"
-      >
-        <div className="flex items-center gap-3">
-          <div className="bg-white/20 p-2 rounded-xl relative">
-            <ShoppingCart className="w-5 h-5" />
-            <span className="absolute -top-1 -right-1 bg-[#ba1a1a] text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-full font-bold">
-              {totalCartItems}
-            </span>
-          </div>
-          <div className="flex flex-col">
-            <span className="text-[11px] font-medium opacity-85">Total Pembayaran</span>
-            <span className="font-price text-base font-extrabold">{formatCurrency(totalAmount)}</span>
-          </div>
-        </div>
-        <span className="text-xs font-bold bg-white/20 px-3 py-1.5 rounded-lg">
-          Buka Keranjang
-        </span>
+      {/* Floating Mobile Cart Trigger */}
+      <div className="md:hidden fixed bottom-4 right-4 z-30">
+        <button
+          onClick={() => setMobileCartOpen(true)}
+          className="px-4 py-3 bg-[#964407] text-white rounded-full shadow-xl flex items-center gap-2.5 font-bold text-xs"
+        >
+          <ShoppingCart className="w-4 h-4" />
+          <span>Pesanan ({totalCartItems}) &bull; {formatCurrency(totalAmount)}</span>
+        </button>
       </div>
 
-      {/* PAYMENT MODAL */}
+      {/* HELD ORDERS MODAL */}
+      {isHeldModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-[#dbc1b5]/60 overflow-hidden flex flex-col max-h-[85vh]">
+            <div className="p-4 bg-[#fff8f4] border-b border-[#dbc1b5]/40 flex items-center justify-between">
+              <div className="flex items-center gap-2 text-[#964407]">
+                <Bookmark className="w-5 h-5" />
+                <h3 className="font-serif-header text-lg font-bold text-[#201b14]">
+                  Daftar Pesanan Tertahan (Hold Bills)
+                </h3>
+              </div>
+              <button
+                onClick={() => setIsHeldModalOpen(false)}
+                className="p-1 text-[#645d57] hover:bg-[#ece0d6] rounded-full transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-4 overflow-y-auto space-y-3 text-xs">
+              {heldOrders.length === 0 ? (
+                <div className="py-12 text-center text-[#887368] space-y-1">
+                  <Bookmark className="w-8 h-8 text-[#dbc1b5] mx-auto" />
+                  <p className="font-semibold">Tidak ada pesanan yang tertahan.</p>
+                  <p className="text-[11px]">Gunakan tombol Tahan (F4) jika pelanggan ingin menambah item nanti.</p>
+                </div>
+              ) : (
+                heldOrders.map((ho) => (
+                  <div
+                    key={ho.id}
+                    className="p-3.5 bg-[#fef1e7]/60 rounded-xl border border-[#dbc1b5]/50 flex items-center justify-between gap-3 shadow-2xs"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-[#964407]">{ho.orderNumber}</span>
+                        <span className="px-2 py-0.5 bg-white border border-[#dbc1b5] rounded-full text-[10px] font-semibold text-[#554339]">
+                          {ho.customerName}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-[#645d57] mt-1">
+                        {ho.items.length} jenis item &bull; Disimpan: {ho.timestamp}
+                      </p>
+                      <p className="font-price font-extrabold text-[#201b14] mt-0.5">
+                        {formatCurrency(ho.total)}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        onClick={() => {
+                          setCart(ho.items);
+                          onRestoreHeldOrder(ho.id);
+                          setIsHeldModalOpen(false);
+                          playScanBeep(settings.soundEffectsEnabled);
+                        }}
+                        className="px-3 py-1.5 bg-[#964407] hover:bg-[#773300] text-white rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer transition-all"
+                      >
+                        <ArrowRight className="w-3.5 h-3.5" />
+                        <span>Buka</span>
+                      </button>
+                      <button
+                        onClick={() => onDeleteHeldOrder(ho.id)}
+                        className="p-1.5 text-[#ba1a1a] hover:bg-rose-50 rounded-lg cursor-pointer"
+                        title="Hapus"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="p-3 bg-[#fff8f4] border-t border-[#dbc1b5]/40 flex justify-end">
+              <button
+                onClick={() => setIsHeldModalOpen(false)}
+                className="px-4 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg text-xs font-bold cursor-pointer"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* BARCODE RAPID SCAN SIMULATOR MODAL */}
+      {isBarcodeSimOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl border border-[#dbc1b5]/60 overflow-hidden">
+            <div className="p-4 bg-[#fff8f4] border-b border-[#dbc1b5]/40 flex items-center justify-between">
+              <div className="flex items-center gap-2 text-[#964407]">
+                <Scan className="w-5 h-5" />
+                <h3 className="font-serif-header text-base font-bold text-[#201b14]">
+                  Simulasi Scanner Barcode / SKU
+                </h3>
+              </div>
+              <button
+                onClick={() => setIsBarcodeSimOpen(false)}
+                className="p-1 text-[#645d57] hover:bg-[#ece0d6] rounded-full"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSimulateScan} className="p-5 space-y-4">
+              <p className="text-xs text-[#554339]">
+                Ketik atau tempel kode SKU produk (misal: <code>MIN-KSGA-001</code> atau <code>SKU-089</code>) untuk mensimulasikan tembakan laser scanner:
+              </p>
+
+              <input
+                type="text"
+                autoFocus
+                required
+                placeholder="Contoh: MIN-KSGA-001"
+                value={barcodeInput}
+                onChange={(e) => setBarcodeInput(e.target.value)}
+                className="w-full px-3.5 py-2.5 border-2 border-[#964407] rounded-xl text-sm font-mono font-bold text-[#201b14] focus:outline-none uppercase"
+              />
+
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsBarcodeSimOpen(false)}
+                  className="px-3 py-1.5 border border-[#dbc1b5] rounded-lg text-xs font-bold text-[#554339]"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-1.5 bg-[#964407] text-white rounded-lg text-xs font-bold hover:bg-[#773300] cursor-pointer"
+                >
+                  Scan & Tambah
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* PAYMENT CHECKOUT MODAL */}
       {isPaymentOpen && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] border border-[#dbc1b5]/50">
-            {/* Header */}
-            <div className="p-4 md:p-5 border-b border-[#dbc1b5]/40 flex justify-between items-center bg-[#fff8f4]">
-              <h2 className="font-serif-header text-xl md:text-2xl font-bold text-[#201b14]">
-                Pilih Metode Pembayaran
-              </h2>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
+          <div className="bg-white w-full max-w-xl rounded-2xl shadow-2xl overflow-hidden flex flex-col border border-[#dbc1b5]/60 max-h-[92vh]">
+            {/* Modal Header */}
+            <div className="p-4 sm:p-5 bg-[#fff8f4] border-b border-[#dbc1b5]/40 flex justify-between items-center shrink-0">
+              <div>
+                <h3 className="font-serif-header text-xl font-bold text-[#201b14]">
+                  Pembayaran Kasir
+                </h3>
+                <p className="text-xs text-[#554339]">
+                  {orderType === 'dine_in'
+                    ? `Dine In (Meja ${tableNumber})`
+                    : orderType === 'take_away'
+                    ? 'Take Away (Bawa Pulang)'
+                    : 'Delivery'} &bull; Cabang: {activeBranchName}
+                </p>
+              </div>
               <button
                 onClick={() => setIsPaymentOpen(false)}
-                className="p-1.5 text-[#645d57] hover:bg-[#ece0d6] rounded-full transition-colors"
+                className="p-1.5 text-[#645d57] hover:bg-[#ece0d6] rounded-full transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Body */}
-            <div className="p-5 md:p-6 flex-1 overflow-y-auto flex flex-col md:flex-row gap-6">
-              {/* Left Column: Payment Method Selection */}
-              <div className="flex-1 space-y-3">
-                {/* Tunai (Cash) */}
-                <label
-                  onClick={() => setPaymentMethod('tunai')}
-                  className={`block cursor-pointer p-4 rounded-xl border-2 transition-all ${
-                    paymentMethod === 'tunai'
-                      ? 'border-[#964407] bg-[#ffdbca]/20 shadow-2xs'
-                      : 'border-[#dbc1b5]/50 hover:bg-[#f8ece1]/40'
-                  }`}
-                >
-                  <div className="flex items-center gap-3.5">
-                    <div
-                      className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${
+            {/* Modal Body */}
+            <div className="p-4 sm:p-6 overflow-y-auto flex-1 space-y-4">
+              {/* Grand Total Display */}
+              <div className="p-4 rounded-2xl bg-[#964407] text-white shadow-md text-center">
+                <span className="text-xs uppercase tracking-wider text-[#ffdbca] font-bold">
+                  Total Tagihan Pembayaran
+                </span>
+                <div className="text-3xl sm:text-4xl font-extrabold font-price tracking-tight mt-1">
+                  {formatCurrency(totalAmount)}
+                </div>
+                {totalDiscount > 0 && (
+                  <span className="inline-block mt-1 text-[11px] bg-white/20 px-2.5 py-0.5 rounded-full">
+                    Hemat {formatCurrency(totalDiscount)}
+                  </span>
+                )}
+              </div>
+
+              {/* Payment Methods */}
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-[#554339] uppercase tracking-wider block">
+                  Pilih Metode Pembayaran
+                </label>
+                <div className="grid grid-cols-3 gap-2.5">
+                  {settings.enabledPayments.tunai && (
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMethod('tunai')}
+                      className={`p-3 rounded-xl border flex flex-col items-center gap-1.5 text-xs font-bold transition-all cursor-pointer ${
                         paymentMethod === 'tunai'
-                          ? 'bg-[#964407] text-white'
-                          : 'bg-[#f8ece1] text-[#964407]'
+                          ? 'border-[#964407] bg-[#ffdbca]/40 text-[#964407] shadow-2xs scale-[1.02]'
+                          : 'border-[#dbc1b5] text-[#554339] hover:bg-[#f8ece1]'
                       }`}
                     >
                       <Banknote className="w-5 h-5" />
-                    </div>
-                    <div className="flex-1">
-                      <h4 className="text-sm font-bold text-[#201b14]">Tunai / Cash</h4>
-                      <p className="text-[11px] text-[#645d57]">Pembayaran uang fisik langsung</p>
-                    </div>
-                    {paymentMethod === 'tunai' && (
-                      <CheckCircle2 className="w-5 h-5 text-[#964407]" />
-                    )}
-                  </div>
-                </label>
+                      <span>Tunai (Cash)</span>
+                    </button>
+                  )}
 
-                {/* QRIS */}
-                <label
-                  onClick={() => setPaymentMethod('qris')}
-                  className={`block cursor-pointer p-4 rounded-xl border-2 transition-all ${
-                    paymentMethod === 'qris'
-                      ? 'border-[#964407] bg-[#ffdbca]/20 shadow-2xs'
-                      : 'border-[#dbc1b5]/50 hover:bg-[#f8ece1]/40'
-                  }`}
-                >
-                  <div className="flex items-center gap-3.5">
-                    <div
-                      className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${
+                  {settings.enabledPayments.qris && (
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMethod('qris')}
+                      className={`p-3 rounded-xl border flex flex-col items-center gap-1.5 text-xs font-bold transition-all cursor-pointer ${
                         paymentMethod === 'qris'
-                          ? 'bg-[#964407] text-white'
-                          : 'bg-[#f8ece1] text-[#964407]'
+                          ? 'border-[#964407] bg-[#ffdbca]/40 text-[#964407] shadow-2xs scale-[1.02]'
+                          : 'border-[#dbc1b5] text-[#554339] hover:bg-[#f8ece1]'
                       }`}
                     >
                       <QrCode className="w-5 h-5" />
-                    </div>
-                    <div className="flex-1">
-                      <h4 className="text-sm font-bold text-[#201b14]">QRIS</h4>
-                      <p className="text-[11px] text-[#645d57]">GoPay, OVO, Dana, ShopeePay, BCA</p>
-                    </div>
-                    {paymentMethod === 'qris' && (
-                      <CheckCircle2 className="w-5 h-5 text-[#964407]" />
-                    )}
-                  </div>
-                </label>
+                      <span>QRIS Dinamis</span>
+                    </button>
+                  )}
 
-                {/* EDC / Kartu */}
-                <label
-                  onClick={() => setPaymentMethod('debit')}
-                  className={`block cursor-pointer p-4 rounded-xl border-2 transition-all ${
-                    paymentMethod === 'debit'
-                      ? 'border-[#964407] bg-[#ffdbca]/20 shadow-2xs'
-                      : 'border-[#dbc1b5]/50 hover:bg-[#f8ece1]/40'
-                  }`}
-                >
-                  <div className="flex items-center gap-3.5">
-                    <div
-                      className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${
+                  {settings.enabledPayments.debit && (
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMethod('debit')}
+                      className={`p-3 rounded-xl border flex flex-col items-center gap-1.5 text-xs font-bold transition-all cursor-pointer ${
                         paymentMethod === 'debit'
-                          ? 'bg-[#964407] text-white'
-                          : 'bg-[#f8ece1] text-[#964407]'
+                          ? 'border-[#964407] bg-[#ffdbca]/40 text-[#964407] shadow-2xs scale-[1.02]'
+                          : 'border-[#dbc1b5] text-[#554339] hover:bg-[#f8ece1]'
                       }`}
                     >
                       <CreditCard className="w-5 h-5" />
-                    </div>
-                    <div className="flex-1">
-                      <h4 className="text-sm font-bold text-[#201b14]">Kartu Debit / Kredit</h4>
-                      <p className="text-[11px] text-[#645d57]">Mesin EDC terintegrasi</p>
-                    </div>
-                    {paymentMethod === 'debit' && (
-                      <CheckCircle2 className="w-5 h-5 text-[#964407]" />
-                    )}
-                  </div>
-                </label>
-              </div>
-
-              {/* Right Column: Calculator / Method Action View */}
-              <div className="flex-1 bg-[#fff8f4] rounded-2xl p-5 border border-[#dbc1b5]/50 flex flex-col justify-between">
-                <div>
-                  <div className="text-center mb-5 pb-4 border-b border-[#dbc1b5]/30">
-                    <span className="text-[11px] font-bold text-[#645d57] uppercase tracking-wider block mb-1">
-                      Total Tagihan
-                    </span>
-                    <span className="font-price text-3xl font-extrabold text-[#964407]">
-                      {formatCurrency(totalAmount)}
-                    </span>
-                  </div>
-
-                  {paymentMethod === 'tunai' && (
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-xs font-bold text-[#554339] mb-1.5">
-                          Uang Diterima (Rp)
-                        </label>
-                        <input
-                          type="number"
-                          value={cashGiven || ''}
-                          onChange={(e) => setCashGiven(Number(e.target.value))}
-                          className="w-full px-4 py-2.5 bg-white border-2 border-[#964407] rounded-xl font-price text-xl font-bold text-right text-[#201b14] focus:outline-none"
-                        />
-                      </div>
-
-                      {/* Quick Cash Buttons */}
-                      <div className="grid grid-cols-3 gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setCashGiven(totalAmount)}
-                          className="py-2 px-1 bg-white border border-[#dbc1b5] rounded-lg text-xs font-bold text-[#201b14] hover:bg-[#f8ece1] transition-colors shadow-2xs"
-                        >
-                          Uang Pas
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setCashGiven(Math.ceil(totalAmount / 50000) * 50000 || 50000)}
-                          className="py-2 px-1 bg-white border border-[#dbc1b5] rounded-lg text-xs font-bold text-[#201b14] hover:bg-[#f8ece1] transition-colors shadow-2xs"
-                        >
-                          {formatNumber(Math.ceil(totalAmount / 50000) * 50000 || 50000)}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setCashGiven(100000)}
-                          className="py-2 px-1 bg-white border border-[#dbc1b5] rounded-lg text-xs font-bold text-[#201b14] hover:bg-[#f8ece1] transition-colors shadow-2xs"
-                        >
-                          100.000
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {paymentMethod === 'qris' && (
-                    <div className="flex flex-col items-center text-center p-3 space-y-2 bg-white rounded-xl border border-[#dbc1b5]/40">
-                      <div className="w-36 h-36 bg-[#f8ece1] p-2 rounded-xl flex items-center justify-center border-2 border-[#964407]/20">
-                        {/* Dynamic Mock QR Code */}
-                        <div className="w-full h-full bg-[#201b14] p-1.5 rounded-lg flex flex-col items-center justify-center text-white text-[10px] font-mono leading-tight">
-                          <QrCode className="w-20 h-20 text-white stroke-1" />
-                          <span className="font-sans font-bold text-[9px] mt-1 tracking-wider text-[#ffdbca]">
-                            QRIS STANDAR
-                          </span>
-                        </div>
-                      </div>
-                      <p className="text-xs font-semibold text-[#201b14]">
-                        Tunjukkan QR ke pelanggan
-                      </p>
-                      <p className="text-[11px] text-[#645d57]">
-                        Scan otomatis terverifikasi secara real-time
-                      </p>
-                    </div>
-                  )}
-
-                  {paymentMethod === 'debit' && (
-                    <div className="text-center p-4 bg-white rounded-xl border border-[#dbc1b5]/40 space-y-2">
-                      <CreditCard className="w-10 h-10 text-[#964407] mx-auto stroke-1" />
-                      <p className="text-xs font-bold text-[#201b14]">
-                        Gesek atau Tempel Kartu di Mesin EDC
-                      </p>
-                      <p className="text-[11px] text-[#645d57]">
-                        Mendukung GPN, Visa, Mastercard, dan Tap-to-Pay
-                      </p>
-                    </div>
+                      <span>Kartu Debit / EDC</span>
+                    </button>
                   )}
                 </div>
-
-                {/* Bottom Section with Kembalian & Submit */}
-                <div className="mt-6 pt-4 border-t border-[#dbc1b5]/50 space-y-3">
-                  {paymentMethod === 'tunai' && (
-                    <div className="flex justify-between items-center">
-                      <span className="text-xs font-medium text-[#645d57]">Kembalian:</span>
-                      <span className="font-price text-xl font-extrabold text-[#059669]">
-                        {formatCurrency(cashChange)}
-                      </span>
-                    </div>
-                  )}
-
-                  <button
-                    onClick={handleProcessPayment}
-                    className="w-full py-3.5 bg-[#964407] hover:bg-[#773300] text-white rounded-xl font-serif-header text-base font-bold shadow-md hover:shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
-                  >
-                    <Printer className="w-4 h-4" />
-                    <span>Selesai & Cetak Struk</span>
-                  </button>
-                </div>
               </div>
+
+              {/* METHOD-SPECIFIC PANELS */}
+              {paymentMethod === 'tunai' && (
+                <div className="space-y-3 bg-[#f8ece1]/40 p-4 rounded-2xl border border-[#dbc1b5]/50">
+                  <div>
+                    <label className="block text-xs font-bold text-[#554339] mb-1">
+                      Uang Diterima dari Pelanggan (Rp)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      step={1000}
+                      value={cashGiven}
+                      onChange={(e) => setCashGiven(Number(e.target.value))}
+                      className="w-full px-4 py-2.5 border border-[#dbc1b5] rounded-xl text-lg font-price font-extrabold text-[#201b14] bg-white focus:outline-none focus:border-[#964407]"
+                    />
+                  </div>
+
+                  {/* Quick cash denomination buttons */}
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      { label: 'Uang Pas', val: totalAmount },
+                      { label: 'Rp 20.000', val: 20000 },
+                      { label: 'Rp 50.000', val: 50000 },
+                      { label: 'Rp 100.000', val: 100000 },
+                      { label: 'Rp 200.000', val: 200000 },
+                    ]
+                      .filter((d) => d.val >= totalAmount || d.label === 'Uang Pas')
+                      .map((denom, i) => (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={() => setCashGiven(denom.val)}
+                          className="px-3 py-1.5 bg-white hover:bg-[#f8ece1] border border-[#dbc1b5] rounded-lg text-xs font-bold text-[#554339] transition-colors cursor-pointer"
+                        >
+                          {denom.label}
+                        </button>
+                      ))}
+                  </div>
+
+                  {/* Change Calculation */}
+                  <div className="p-3 bg-white rounded-xl border border-[#dbc1b5]/40 flex justify-between items-center">
+                    <span className="text-xs font-bold text-[#554339]">Kembalian:</span>
+                    <span
+                      className={`font-price text-xl font-extrabold ${
+                        cashGiven < totalAmount ? 'text-[#ba1a1a]' : 'text-[#059669]'
+                      }`}
+                    >
+                      {cashGiven < totalAmount
+                        ? `Kurang ${formatCurrency(totalAmount - cashGiven)}`
+                        : formatCurrency(cashChange)}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {paymentMethod === 'qris' && (
+                <div className="p-5 bg-[#f8ece1]/40 rounded-2xl border border-[#dbc1b5]/50 flex flex-col items-center text-center space-y-3">
+                  <div className="w-40 h-40 bg-white p-3 rounded-xl border border-[#dbc1b5] shadow-xs flex items-center justify-center">
+                    {/* Visual QR Simulator */}
+                    <div className="w-full h-full border-2 border-black p-1 flex flex-col justify-between">
+                      <div className="flex justify-between">
+                        <div className="w-8 h-8 bg-black border-2 border-white" />
+                        <div className="w-8 h-8 bg-black border-2 border-white" />
+                      </div>
+                      <div className="text-[10px] font-extrabold tracking-widest text-center text-gray-800">
+                        QRIS STANDAR
+                      </div>
+                      <div className="flex justify-between items-end">
+                        <div className="w-8 h-8 bg-black border-2 border-white" />
+                        <div className="text-[9px] font-mono font-bold">KASIRKU</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-xs font-bold text-[#201b14] block">
+                      Pindai dengan GoPay, OVO, Dana, BCA, Mandiri
+                    </span>
+                    <span className="text-[11px] text-[#645d57]">
+                      Nominal otomatis tertera: {formatCurrency(totalAmount)}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {paymentMethod === 'debit' && (
+                <div className="p-5 bg-[#f8ece1]/40 rounded-2xl border border-[#dbc1b5]/50 text-center space-y-2 text-xs text-[#554339]">
+                  <CreditCard className="w-8 h-8 text-[#964407] mx-auto" />
+                  <p className="font-bold text-[#201b14]">
+                    Gesek / Tempel Kartu pada Mesin EDC Bank
+                  </p>
+                  <p className="text-[11px] text-[#645d57]">
+                    Pastikan struk EDC berhasil keluar dan dana telah terotorisasi sebelum menyelesaikan transaksi.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-[#fff8f4] border-t border-[#dbc1b5]/40 flex gap-3 shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsPaymentOpen(false)}
+                className="flex-1 py-2.5 border border-[#dbc1b5] hover:bg-[#f8ece1] text-[#554339] rounded-xl text-xs font-bold transition-all cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleProcessPayment}
+                disabled={paymentMethod === 'tunai' && cashGiven < totalAmount}
+                className="flex-2 py-2.5 bg-[#964407] hover:bg-[#773300] text-white rounded-xl text-xs font-bold shadow-md hover:shadow-lg transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Selesai & Cetak Struk</span>
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Success Toast Notification */}
-      {showToast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-[#362f28] text-white px-6 py-3 rounded-full shadow-2xl flex items-center gap-3 z-50 animate-in fade-in slide-in-from-bottom-5">
-          <CheckCircle2 className="w-5 h-5 text-[#ffdbca]" />
-          <span className="text-xs font-semibold">Transaksi berhasil disimpan & dicatat!</span>
+      {/* In-App Floating Notification Toast */}
+      {toastNotification && (
+        <div
+          id="kasir-toast-banner"
+          className={`fixed bottom-6 left-1/2 -translate-x-1/2 px-4 py-2.5 rounded-xl shadow-lg z-50 flex items-center gap-2.5 animate-in fade-in slide-in-from-bottom-2 duration-150 border text-xs font-bold ${
+            toastNotification.type === 'error'
+              ? 'bg-[#ffdad6] text-[#ba1a1a] border-[#ba1a1a]/30'
+              : toastNotification.type === 'success'
+              ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+              : 'bg-[#201b14] text-white border-white/10'
+          }`}
+        >
+          {toastNotification.type === 'error' ? (
+            <AlertTriangle className="w-4 h-4 shrink-0 text-[#ba1a1a]" />
+          ) : toastNotification.type === 'success' ? (
+            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+          ) : (
+            <Sparkles className="w-4 h-4 shrink-0 text-[#ffdbca]" />
+          )}
+          <span>{toastNotification.message}</span>
         </div>
       )}
+
+      {/* Clear Cart Confirmation Dialog */}
+      <ConfirmationModal
+        id="confirm-clear-cart"
+        isOpen={isClearConfirmOpen}
+        title="Kosongkan Keranjang Kasir"
+        message="Semua item pesanan, voucher promo, dan potongan poin yang sudah dipilih akan dihapus dari transaksi saat ini. Tindakan ini tidak dapat dibatalkan."
+        confirmText="Ya, Kosongkan"
+        cancelText="Kembali"
+        danger={true}
+        onConfirm={executeClearCart}
+        onCancel={() => setIsClearConfirmOpen(false)}
+      />
     </div>
   );
 };

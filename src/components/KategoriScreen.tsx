@@ -11,6 +11,7 @@ import {
   Package,
   Boxes,
   AlertTriangle,
+  AlertCircle,
   X,
   Layers,
 } from 'lucide-react';
@@ -35,6 +36,7 @@ export const KategoriScreen: React.FC<KategoriScreenProps> = ({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Category | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
 
   // Form State
   const [formData, setFormData] = useState({
@@ -55,6 +57,7 @@ export const KategoriScreen: React.FC<KategoriScreenProps> = ({
 
   const handleOpenAdd = () => {
     setEditingCategory(null);
+    setFormError(null);
     setFormData({
       name: '',
       description: '',
@@ -67,6 +70,7 @@ export const KategoriScreen: React.FC<KategoriScreenProps> = ({
 
   const handleOpenEdit = (category: Category) => {
     setEditingCategory(category);
+    setFormError(null);
     setFormData({
       name: category.name,
       description: category.description,
@@ -80,7 +84,7 @@ export const KategoriScreen: React.FC<KategoriScreenProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name.trim()) {
-      alert('Nama kategori tidak boleh kosong');
+      setFormError('Nama kategori wajib diisi.');
       return;
     }
 
@@ -241,6 +245,13 @@ export const KategoriScreen: React.FC<KategoriScreenProps> = ({
             </div>
 
             <form onSubmit={handleSubmit} className="p-5 space-y-4">
+              {formError && (
+                <div className="p-3 bg-[#ffdad6]/70 border border-[#ba1a1a]/40 rounded-xl flex items-center gap-2 text-xs text-[#ba1a1a]">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{formError}</span>
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-bold text-[#554339] mb-1">
                   Nama Kategori *

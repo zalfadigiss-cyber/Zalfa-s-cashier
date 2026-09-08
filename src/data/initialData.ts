@@ -1,4 +1,4 @@
-import { Category, Product, StoreSettings, Transaction, SalesTrendData } from '../types';
+import { Category, Product, StoreSettings, Transaction, SalesTrendData, AppUser } from '../types';
 
 export const initialCategories: Category[] = [
   {
@@ -367,7 +367,7 @@ export const initialTransactions: Transaction[] = [
 ];
 
 export const initialStoreSettings: StoreSettings = {
-  storeName: 'KASIRKU STORE',
+  storeName: 'KASIRKU ENTERPRISE',
   storePhone: '0812-3456-7890',
   storeAddress: 'Jl. Jend. Sudirman No. 45, Jakarta Pusat, 10220',
   userName: 'Budi Santoso',
@@ -381,6 +381,139 @@ export const initialStoreSettings: StoreSettings = {
     qris: true,
     debit: true,
   },
+  soundEffectsEnabled: true,
+  printerPaperWidth: '58mm',
+};
+
+export const initialBranches: { id: string; name: string; code: string; address: string; phone: string }[] = [
+  {
+    id: 'br-01',
+    name: 'Cabang Utama - Sudirman',
+    code: 'SDR-01',
+    address: 'Gedung Menara Sudirman Lt. 1, Jakarta Pusat',
+    phone: '021-5790123',
+  },
+  {
+    id: 'br-02',
+    name: 'Cabang Tebet Raya',
+    code: 'TBT-02',
+    address: 'Jl. Tebet Raya No. 18, Jakarta Selatan',
+    phone: '021-8370987',
+  },
+  {
+    id: 'br-03',
+    name: 'Cabang Senopati Food Hall',
+    code: 'SNP-03',
+    address: 'Jl. Senopati No. 42, Kebayoran Baru',
+    phone: '021-7220541',
+  },
+];
+
+export const initialCustomers: {
+  id: string;
+  name: string;
+  phone: string;
+  email?: string;
+  tier: 'Reguler' | 'Silver' | 'Gold' | 'VIP';
+  points: number;
+  totalSpent: number;
+  transactionsCount: number;
+}[] = [
+  {
+    id: 'cust-1',
+    name: 'Ahmad Fauzi',
+    phone: '081299887711',
+    email: 'ahmad.fauzi@gmail.com',
+    tier: 'Gold',
+    points: 450,
+    totalSpent: 1850000,
+    transactionsCount: 18,
+  },
+  {
+    id: 'cust-2',
+    name: 'Siti Rahmawati',
+    phone: '081377665544',
+    email: 'siti.rahma@yahoo.com',
+    tier: 'VIP',
+    points: 820,
+    totalSpent: 3400000,
+    transactionsCount: 32,
+  },
+  {
+    id: 'cust-3',
+    name: 'Kevin Wijaya',
+    phone: '085712349900',
+    email: 'kevin.w@tech.co.id',
+    tier: 'Silver',
+    points: 180,
+    totalSpent: 750000,
+    transactionsCount: 8,
+  },
+  {
+    id: 'cust-4',
+    name: 'Dina Lestari',
+    phone: '087888990011',
+    tier: 'Reguler',
+    points: 50,
+    totalSpent: 125000,
+    transactionsCount: 2,
+  },
+];
+
+export const initialVouchers: {
+  code: string;
+  name: string;
+  type: 'percent' | 'fixed';
+  value: number;
+  minPurchase: number;
+}[] = [
+  {
+    code: 'HEMAT10',
+    name: 'Diskon 10% Spesial',
+    type: 'percent',
+    value: 10,
+    minPurchase: 30000,
+  },
+  {
+    code: 'POTONG15K',
+    name: 'Potongan Langsung Rp 15.000',
+    type: 'fixed',
+    value: 15000,
+    minPurchase: 50000,
+  },
+  {
+    code: 'VIPMEMBER',
+    name: 'Diskon Spesial Member 15%',
+    type: 'percent',
+    value: 15,
+    minPurchase: 20000,
+  },
+];
+
+export const initialActiveShift: {
+  id: string;
+  cashierName: string;
+  branchName: string;
+  startTime: string;
+  startDate: string;
+  startingCash: number;
+  cashInLogs: { id: string; time: string; amount: number; reason: string; type: 'masuk' }[];
+  cashOutLogs: { id: string; time: string; amount: number; reason: string; type: 'keluar' }[];
+  status: 'open' | 'closed';
+} = {
+  id: 'shift-' + Date.now(),
+  cashierName: 'Budi Santoso',
+  branchName: 'Cabang Utama - Sudirman',
+  startTime: '08:00',
+  startDate: '24 Okt 2023',
+  startingCash: 500000, // Modal Kas Awal Rp 500.000
+  cashInLogs: [
+    { id: 'cin-1', time: '08:15', amount: 100000, reason: 'Pecahan uang kecil / kembalian', type: 'masuk' },
+  ],
+  cashOutLogs: [
+    { id: 'cout-1', time: '10:30', amount: 25000, reason: 'Beli galon air isi ulang', type: 'keluar' },
+  ],
+  status: 'open',
 };
 
 export const weeklySalesTrend: SalesTrendData[] = [
@@ -391,4 +524,40 @@ export const weeklySalesTrend: SalesTrendData[] = [
   { day: 'Jum', label: 'Jumat', revenue: 900000, transactions: 29 },
   { day: 'Sab', label: 'Sabtu', revenue: 2800000, transactions: 88 },
   { day: 'Min', label: 'Minggu', revenue: 2000000, transactions: 70 },
+];
+
+export const initialUsers: AppUser[] = [
+  {
+    id: 'user-superadmin',
+    username: 'zalfaw4',
+    password: '13februarilove',
+    name: 'Zalfa Super Admin',
+    role: 'super_admin',
+    email: 'zalfadigiss@gmail.com',
+    phone: '0812-3456-7890',
+    avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80',
+    createdAt: '2023-10-01',
+  },
+  {
+    id: 'user-kasir-1',
+    username: 'budi_kasir',
+    password: '123',
+    name: 'Budi Santoso',
+    role: 'kasir',
+    email: 'budi.kasir@kasirku.id',
+    phone: '0812-9876-5432',
+    avatarUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuBtoonZhAVzy1UW5qR3PlzN6UW1Y5aqeMMvjJp1k3NdbL6FUeNZEr8jgEsKsZ3MWDLWIqB9ooRHN2sjKs6XO-_iGoeUhRcdfu6mYkwZN4HwlKUL8dWNUhvYucP-7g1yfZ8ql-p0y6pNephBf0XzK-RVu57IEP85lvq3Nc0PzuLKUEJxh_d7GR3ndJMsw7RZ0RGUKSprUiOSS2Tg02GKzrN1sukma4AsSs1nUiFM26LCEgRcfhLzWW8',
+    createdAt: '2023-10-05',
+  },
+  {
+    id: 'user-manager-1',
+    username: 'siti_manager',
+    password: '123',
+    name: 'Siti Aminah',
+    role: 'manager',
+    email: 'siti.manager@kasirku.id',
+    phone: '0878-1122-3344',
+    avatarUrl: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=300&q=80',
+    createdAt: '2023-10-10',
+  },
 ];

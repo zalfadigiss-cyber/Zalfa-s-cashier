@@ -11,20 +11,32 @@ import {
   QrCode,
   Banknote,
   Camera,
+  ShieldCheck,
+  Users,
+  KeyRound,
+  Trash2,
 } from 'lucide-react';
-import { StoreSettings } from '../types';
+import { StoreSettings, AppUser } from '../types';
+import { ConfirmationModal } from './ConfirmationModal';
 
 interface PengaturanScreenProps {
   settings: StoreSettings;
   onSaveSettings: (newSettings: StoreSettings) => void;
+  currentUser?: AppUser | null;
+  users?: AppUser[];
+  onDeleteUser?: (userId: string) => void;
 }
 
 export const PengaturanScreen: React.FC<PengaturanScreenProps> = ({
   settings,
   onSaveSettings,
+  currentUser,
+  users = [],
+  onDeleteUser,
 }) => {
   const [form, setForm] = useState<StoreSettings>(settings);
   const [isSaved, setIsSaved] = useState(false);
+  const [deleteUserTarget, setDeleteUserTarget] = useState<AppUser | null>(null);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -300,6 +312,122 @@ export const PengaturanScreen: React.FC<PengaturanScreenProps> = ({
           </div>
         </div>
 
+        {/* User Management & Credentials Card */}
+        <div className="bg-white rounded-2xl border border-[#dbc1b5]/40 shadow-xs p-6 space-y-4">
+          <div className="flex items-center justify-between border-b border-[#dbc1b5]/30 pb-3">
+            <div className="flex items-center gap-2 text-[#964407]">
+              <Users className="w-5 h-5" />
+              <h3 className="font-serif-header text-xl font-bold text-[#201b14]">
+                Manajemen Pengguna & Kredensial Akses
+              </h3>
+            </div>
+            {currentUser?.role === 'super_admin' && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-[#ffbe99] text-[#592600]">
+                <ShieldCheck className="w-3.5 h-3.5" />
+                Mode Super Admin
+              </span>
+            )}
+          </div>
+
+          {/* Super Admin Info Banner */}
+          <div className="p-4 bg-[#fff8f4] border border-[#dbc1b5]/60 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#964407] text-white flex items-center justify-center font-bold shadow-xs">
+                <KeyRound className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h4 className="text-sm font-bold text-[#201b14]">Kredensial Super Admin Utama</h4>
+                  <span className="px-1.5 py-0.2 rounded text-[10px] font-extrabold bg-[#ffbe99] text-[#592600] uppercase">
+                    Root Access
+                  </span>
+                </div>
+                <p className="text-xs text-[#554339] font-mono mt-0.5">
+                  Username: <strong className="text-[#964407]">zalfaw4</strong> &bull; Password:{' '}
+                  <strong className="text-[#964407]">13februarilove</strong>
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Registered Users Table / List */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-bold text-[#554339]">
+                Daftar Akun Terdaftar ({users.length} Pengguna):
+              </span>
+            </div>
+
+            <div className="divide-y divide-[#dbc1b5]/30 border border-[#dbc1b5]/40 rounded-xl overflow-hidden">
+              {users.map((u) => {
+                const isSuperAdmin = u.username === 'zalfaw4' || u.role === 'super_admin';
+                return (
+                  <div
+                    key={u.id}
+                    className="p-3 bg-white hover:bg-[#fff8f4]/50 flex items-center justify-between gap-3 transition-colors"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-9 h-9 rounded-full bg-[#f8ece1] border border-[#dbc1b5] overflow-hidden shrink-0 flex items-center justify-center text-[#964407] font-bold text-xs">
+                        {u.avatarUrl ? (
+                          <img
+                            src={u.avatarUrl}
+                            alt={u.name}
+                            referrerPolicy="no-referrer"
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          u.name.charAt(0)
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="text-xs font-bold text-[#201b14] truncate">{u.name}</p>
+                          <span
+                            className={`px-1.5 py-0.2 rounded text-[9px] font-bold uppercase tracking-wider ${
+                              u.role === 'super_admin'
+                                ? 'bg-[#ffbe99] text-[#592600]'
+                                : u.role === 'manager'
+                                ? 'bg-blue-100 text-blue-800'
+                                : u.role === 'admin'
+                                ? 'bg-purple-100 text-purple-800'
+                                : 'bg-emerald-100 text-emerald-800'
+                            }`}
+                          >
+                            {u.role.replace('_', ' ')}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-[#645d57]">
+                          @{u.username} &bull; {u.email || 'Tanpa email'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {isSuperAdmin ? (
+                        <span className="text-[10px] font-semibold text-[#887368] px-2 py-0.5 bg-[#f8ece1] rounded-md">
+                          Akun Utama
+                        </span>
+                      ) : (
+                        onDeleteUser && (
+                          <button
+                            type="button"
+                            id={`user-delete-${u.id}`}
+                            onClick={() => setDeleteUserTarget(u)}
+                            className="p-1 text-[#ba1a1a] hover:bg-[#ffdad6] rounded-lg transition-colors cursor-pointer"
+                            title="Hapus akun"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
         {/* Save CTA */}
         <div className="flex items-center justify-between pt-2">
           {isSaved ? (
@@ -320,6 +448,24 @@ export const PengaturanScreen: React.FC<PengaturanScreenProps> = ({
           </button>
         </div>
       </form>
+
+      {/* Delete User Confirmation Modal */}
+      <ConfirmationModal
+        id="confirm-delete-user"
+        isOpen={deleteUserTarget !== null}
+        title="Hapus Akun Pengguna"
+        message={`Apakah Anda yakin ingin menghapus akun "${deleteUserTarget?.name}" (@${deleteUserTarget?.username})? Pengguna ini tidak dapat mengakses sistem kasir setelah dihapus.`}
+        confirmText="Ya, Hapus Akun"
+        cancelText="Batal"
+        danger={true}
+        onConfirm={() => {
+          if (deleteUserTarget && onDeleteUser) {
+            onDeleteUser(deleteUserTarget.id);
+          }
+          setDeleteUserTarget(null);
+        }}
+        onCancel={() => setDeleteUserTarget(null)}
+      />
     </div>
   );
 };
