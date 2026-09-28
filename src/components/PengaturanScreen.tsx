@@ -15,6 +15,9 @@ import {
   Users,
   KeyRound,
   Trash2,
+  Database,
+  Server,
+  Cloud,
 } from 'lucide-react';
 import { StoreSettings, AppUser } from '../types';
 import { ConfirmationModal } from './ConfirmationModal';
@@ -424,6 +427,50 @@ export const PengaturanScreen: React.FC<PengaturanScreenProps> = ({
                   </div>
                 );
               })}
+            </div>
+          </div>
+        </div>
+
+        {/* Turso Cloud Database Card */}
+        <div className="bg-white rounded-2xl border border-[#dbc1b5]/40 shadow-xs p-6 space-y-4">
+          <div className="flex items-center justify-between border-b border-[#dbc1b5]/30 pb-3">
+            <div className="flex items-center gap-2 text-[#964407]">
+              <Database className="w-5 h-5 text-emerald-700" />
+              <h3 className="font-serif-header text-xl font-bold text-[#201b14]">
+                Koneksi Database Turso Cloud
+              </h3>
+            </div>
+            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 border border-emerald-300 rounded-full text-xs font-bold text-emerald-800">
+              <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse" />
+              <span>Terhubung & Aktif</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+            <div className="p-3.5 bg-[#fef1e7]/60 rounded-xl border border-[#dbc1b5]/50 space-y-1">
+              <div className="flex items-center gap-1.5 text-[#964407] font-bold">
+                <Cloud className="w-3.5 h-3.5" />
+                <span>Endpoint Turso (LibSQL)</span>
+              </div>
+              <p className="font-mono text-[11px] text-[#201b14] truncate">
+                libsql://kasirzadb-falza.aws-ap-northeast-1.turso.io
+              </p>
+              <p className="text-[10px] text-[#887368]">
+                Region: AWS Tokyo (ap-northeast-1) &bull; Latensi ultra-rendah
+              </p>
+            </div>
+
+            <div className="p-3.5 bg-[#fef1e7]/60 rounded-xl border border-[#dbc1b5]/50 space-y-1">
+              <div className="flex items-center gap-1.5 text-[#964407] font-bold">
+                <Server className="w-3.5 h-3.5" />
+                <span>Tabel Terkelola di Turso</span>
+              </div>
+              <p className="text-[11px] text-[#554339]">
+                categories, products, transactions, users, settings, shift_sessions, shift_logs
+              </p>
+              <p className="text-[10px] text-[#059669] font-medium">
+                Sinkronisasi otomatis setiap kali kasir melakukan aksi
+              </p>
             </div>
           </div>
         </div>

@@ -12,6 +12,8 @@ export function formatCurrency(amount: number, currency: 'IDR' | 'USD' = 'IDR'):
   }).format(Math.round(amount));
 }
 
+export const formatRupiah = formatCurrency;
+
 export function formatNumber(value: number): string {
   return new Intl.NumberFormat('id-ID').format(value);
 }

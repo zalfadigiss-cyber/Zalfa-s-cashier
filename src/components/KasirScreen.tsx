@@ -56,6 +56,7 @@ interface KasirScreenProps {
   onRestoreHeldOrder: (orderId: string) => void;
   onDeleteHeldOrder: (orderId: string) => void;
   onOpenHotkeysGuide: () => void;
+  onOpenFnBScanner?: () => void;
 }
 
 export const KasirScreen: React.FC<KasirScreenProps> = ({
@@ -72,6 +73,7 @@ export const KasirScreen: React.FC<KasirScreenProps> = ({
   onRestoreHeldOrder,
   onDeleteHeldOrder,
   onOpenHotkeysGuide,
+  onOpenFnBScanner,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -505,6 +507,20 @@ export const KasirScreen: React.FC<KasirScreenProps> = ({
                   </span>
                 )}
               </button>
+
+              {/* F&B Scanner Module Button */}
+              {onOpenFnBScanner && (
+                <button
+                  id="kasir-fnb-scanner-btn"
+                  type="button"
+                  onClick={onOpenFnBScanner}
+                  className="px-3 py-1.5 bg-[#964407] hover:bg-[#7e3905] text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer active:scale-95"
+                  title="Buka Pemindai Barcode F&B (Packaging & Peralatan)"
+                >
+                  <Scan className="w-3.5 h-3.5 text-amber-300" />
+                  <span>Scan F&B</span>
+                </button>
+              )}
 
               {/* Rapid Barcode Simulator */}
               <button

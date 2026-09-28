@@ -13,6 +13,9 @@ import {
   ChevronDown,
   ShieldCheck,
   LogOut,
+  Database,
+  ScanBarcode,
+  Crown,
 } from 'lucide-react';
 import { StoreSettings, Branch, ShiftSession, AppUser } from '../types';
 
@@ -32,6 +35,8 @@ interface TopHeaderProps {
   currentShift: ShiftSession | null;
   onOpenShiftModal: () => void;
   onOpenHotkeysGuide: () => void;
+  onOpenFnBScanner?: () => void;
+  onOpenMemberPortal?: () => void;
 }
 
 export const TopHeader: React.FC<TopHeaderProps> = ({
@@ -50,6 +55,8 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   currentShift,
   onOpenShiftModal,
   onOpenHotkeysGuide,
+  onOpenFnBScanner,
+  onOpenMemberPortal,
 }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
@@ -90,6 +97,17 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
       </div>
 
       <div className="flex items-center gap-1.5 sm:gap-2.5">
+        {/* Turso Cloud Database Badge */}
+        <div
+          id="topheader-turso-badge"
+          className="hidden md:flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50/90 border border-emerald-300/80 rounded-xl text-xs font-semibold text-emerald-900 shadow-2xs"
+          title="Terhubung ke Turso Database (libsql://kasirzadb-falza.aws-ap-northeast-1.turso.io)"
+        >
+          <Database className="w-3.5 h-3.5 text-emerald-700" />
+          <span className="font-bold text-[11px] text-emerald-900">Turso Cloud</span>
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
+        </div>
+
         {/* Enterprise Branch Selector */}
         <div className="hidden lg:flex items-center gap-1.5 bg-white border border-[#dbc1b5] rounded-xl px-2.5 py-1 shadow-2xs">
           <Building2 className="w-3.5 h-3.5 text-[#964407]" />
@@ -124,6 +142,34 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             {currentShift ? 'Kas Aktif' : 'Shift'}
           </span>
         </button>
+
+        {/* F&B Barcode Scanner Engine Modal Trigger */}
+        {onOpenFnBScanner && (
+          <button
+            id="topheader-fnb-scanner-btn"
+            type="button"
+            onClick={onOpenFnBScanner}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold bg-[#964407] hover:bg-[#7e3905] text-white transition-all shadow-xs cursor-pointer active:scale-95"
+            title="Buka Pemindai Barcode F&B (Packaging & Peralatan Dapur)"
+          >
+            <ScanBarcode className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Scan Barcode F&B</span>
+          </button>
+        )}
+
+        {/* Member VIP & Loyalty Landing Page Trigger */}
+        {onOpenMemberPortal && (
+          <button
+            id="topheader-member-portal-btn"
+            type="button"
+            onClick={onOpenMemberPortal}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold bg-amber-100 hover:bg-amber-200/80 text-[#7e3905] border border-amber-300 transition-all shadow-xs cursor-pointer active:scale-95"
+            title="Buka Halaman Member VIP & Poin Loyalitas"
+          >
+            <Crown className="w-3.5 h-3.5 text-amber-700" />
+            <span className="hidden lg:inline">Portal Member</span>
+          </button>
+        )}
 
         {/* Hotkeys button */}
         <button

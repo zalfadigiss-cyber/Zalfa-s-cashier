@@ -6,7 +6,8 @@ export type TabType =
   | 'stok'
   | 'riwayat'
   | 'laporan'
-  | 'pengaturan';
+  | 'pengaturan'
+  | 'member';
 
 export interface Category {
   id: string;
@@ -115,6 +116,14 @@ export interface Customer {
   points: number;
   totalSpent: number;
   transactionsCount: number;
+  password?: string;
+  createdAt?: string;
+  favoriteCategory?: string;
+}
+
+export interface MemberSession {
+  member: Customer;
+  token?: string;
 }
 
 export interface VoucherPromo {

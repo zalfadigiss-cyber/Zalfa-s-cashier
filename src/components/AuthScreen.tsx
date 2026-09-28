@@ -17,6 +17,7 @@ import {
   Phone,
   Mail,
   Users,
+  Crown,
 } from 'lucide-react';
 import { AppUser, UserRole } from '../types';
 
@@ -24,12 +25,14 @@ interface AuthScreenProps {
   onLogin: (user: AppUser) => void;
   onRegister: (newUser: AppUser) => void;
   users: AppUser[];
+  onOpenMemberPortal?: () => void;
 }
 
 export const AuthScreen: React.FC<AuthScreenProps> = ({
   onLogin,
   onRegister,
   users,
+  onOpenMemberPortal,
 }) => {
   const [activeTab, setActiveTab] = useState<'login' | 'register'>('login');
 
@@ -248,6 +251,21 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
               </button>
             </div>
           </div>
+
+          {/* Member Landing Page Switcher */}
+          {onOpenMemberPortal && (
+            <div className="mt-4 pt-3 border-t border-white/10">
+              <button
+                id="btn-goto-member-landing"
+                type="button"
+                onClick={onOpenMemberPortal}
+                className="w-full py-2.5 px-3 bg-gradient-to-r from-amber-600/30 to-amber-700/30 hover:from-amber-600/50 hover:to-amber-700/50 text-amber-200 border border-amber-300/30 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer"
+              >
+                <Crown className="w-3.5 h-3.5 text-amber-300" />
+                <span>Buka Landing Page Member & Poin VIP</span>
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Right Form Column */}

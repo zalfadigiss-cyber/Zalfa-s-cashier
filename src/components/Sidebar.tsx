@@ -14,6 +14,7 @@ import {
   X,
   CreditCard,
   ShieldCheck,
+  Crown,
 } from 'lucide-react';
 import { TabType, StoreSettings, AppUser } from '../types';
 
@@ -41,6 +42,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const navItems: { id: TabType; label: string; icon: React.ReactNode }[] = [
     { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="w-5 h-5" /> },
     { id: 'kasir', label: 'Kasir', icon: <ShoppingCart className="w-5 h-5" /> },
+    { id: 'member', label: 'Member & Loyalty', icon: <Crown className="w-5 h-5" /> },
     { id: 'produk', label: 'Produk', icon: <Package className="w-5 h-5" /> },
     { id: 'kategori', label: 'Kategori', icon: <Tag className="w-5 h-5" /> },
     { id: 'stok', label: 'Stok', icon: <Boxes className="w-5 h-5" /> },

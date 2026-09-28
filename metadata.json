@@ -1,6 +1,6 @@
 {
   "name": "KASIRKU - POS System",
-  "description": "Modern Point of Sale (POS) system with sales dashboard, category and product management, real-time stock control, transaction receipt generation, and system settings.",
-  "requestFramePermissions": [],
+  "description": "Modern Point of Sale (POS) and Member Loyalty Platform with member landing page, sign up & sign in, rewards tracking, and real-time Turso database synchronization.",
+  "requestFramePermissions": ["camera"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

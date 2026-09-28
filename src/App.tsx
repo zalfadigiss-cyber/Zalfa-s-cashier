@@ -39,15 +39,22 @@ import { BantuanModal } from './components/BantuanModal';
 import { ShiftModal } from './components/ShiftModal';
 import { HotkeysModal } from './components/HotkeysModal';
 import { ConfirmationModal } from './components/ConfirmationModal';
+import { FnBInventoryScannerModule, FnBCartItem } from './components/FnBInventoryScannerModule';
+import { MemberLandingPage } from './components/MemberLandingPage';
 import { getIndonesianDate, getIndonesianTime } from './utils/format';
+import { api } from './services/api';
 
 export default function App() {
+  // Top-level View Mode: 'landing' for Member Landing Page, 'pos' for Point of Sale & Staff
+  const [viewMode, setViewMode] = useState<'landing' | 'pos'>('landing');
+
   // Navigation State
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
   const [isOpenMobile, setIsOpenMobile] = useState<boolean>(false);
   const [isHelpOpen, setIsHelpOpen] = useState<boolean>(false);
   const [isShiftModalOpen, setIsShiftModalOpen] = useState<boolean>(false);
   const [isHotkeysOpen, setIsHotkeysOpen] = useState<boolean>(false);
+  const [isFnBScannerOpen, setIsFnBScannerOpen] = useState<boolean>(false);
   const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState<boolean>(false);
   const [globalSearch, setGlobalSearch] = useState<string>('');
 
@@ -169,6 +176,40 @@ export default function App() {
   // Active Receipt to open automatically or from history
   const [activeReceiptTrx, setActiveReceiptTrx] = useState<Transaction | null>(null);
 
+  // Sync with Turso Edge Database on Mount
+  useEffect(() => {
+    async function loadTursoData() {
+      try {
+        const [cats, prods, trxs, sets, usrs, custs, vchs, shift] = await Promise.all([
+          api.getCategories(),
+          api.getProducts(),
+          api.getTransactions(),
+          api.getSettings(),
+          api.getUsers(),
+          api.getCustomers(),
+          api.getVouchers(),
+          api.getActiveShift(),
+        ]);
+
+        if (cats && cats.length > 0) setCategories(cats);
+        if (prods && prods.length > 0) setProducts(prods);
+        if (trxs && trxs.length > 0) setTransactions(trxs);
+        if (sets) setSettings(sets);
+        if (usrs && usrs.length > 0) {
+          // Guarantee Super Admin zalfaw4 is always present in users
+          const hasAdmin = usrs.some((u) => u.username === 'zalfaw4');
+          setUsers(hasAdmin ? usrs : [initialUsers[0], ...usrs]);
+        }
+        if (custs && custs.length > 0) setCustomers(custs);
+        if (vchs && vchs.length > 0) setVouchers(vchs);
+        if (shift) setCurrentShift(shift);
+      } catch (err) {
+        console.warn('[Turso] Using offline cached state:', err);
+      }
+    }
+    loadTursoData();
+  }, []);
+
   // Sync to LocalStorage
   useEffect(() => {
     try {
@@ -271,6 +312,7 @@ export default function App() {
 
   const handleRegister = (newUser: AppUser) => {
     setUsers((prev) => [newUser, ...prev]);
+    api.saveUser(newUser);
   };
 
   const handleLogout = () => {
@@ -279,6 +321,7 @@ export default function App() {
 
   const handleDeleteUser = (userId: string) => {
     setUsers((prev) => prev.filter((u) => u.id !== userId));
+    api.deleteUser(userId);
   };
 
   // Product Operations
@@ -288,19 +331,29 @@ export default function App() {
       id: 'prod-' + Date.now(),
     };
     setProducts((prev) => [created, ...prev]);
+    api.saveProduct(created, true);
   };
 
   const handleUpdateProduct = (updated: Product) => {
     setProducts((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+    api.saveProduct(updated, false);
   };
 
   const handleDeleteProduct = (productId: string) => {
     setProducts((prev) => prev.filter((p) => p.id !== productId));
+    api.deleteProduct(productId);
   };
 
   const handleUpdateStock = (productId: string, newStock: number) => {
     setProducts((prev) =>
-      prev.map((p) => (p.id === productId ? { ...p, stock: newStock } : p))
+      prev.map((p) => {
+        if (p.id === productId) {
+          const updatedProd = { ...p, stock: newStock };
+          api.saveProduct(updatedProd, false);
+          return updatedProd;
+        }
+        return p;
+      })
     );
   };
 
@@ -311,14 +364,17 @@ export default function App() {
       id: 'cat-' + Date.now(),
     };
     setCategories((prev) => [...prev, created]);
+    api.saveCategory(created, true);
   };
 
   const handleUpdateCategory = (updated: Category) => {
     setCategories((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+    api.saveCategory(updated, false);
   };
 
   const handleDeleteCategory = (categoryId: string) => {
     setCategories((prev) => prev.filter((c) => c.id !== categoryId));
+    api.deleteCategory(categoryId);
   };
 
   // Complete Transaction (decrease stock, record history, add loyalty points, record to shift)
@@ -330,6 +386,7 @@ export default function App() {
     };
 
     setTransactions((prev) => [transactionWithBranch, ...prev]);
+    api.saveTransaction(transactionWithBranch);
 
     // Decrement stocks
     setProducts((prev) => {
@@ -337,7 +394,9 @@ export default function App() {
         const purchased = newTrx.items.find((item) => item.productId === prod.id);
         if (purchased) {
           const remainingStock = Math.max(0, prod.stock - purchased.quantity);
-          return { ...prod, stock: remainingStock };
+          const updatedProd = { ...prod, stock: remainingStock };
+          api.saveProduct(updatedProd, false);
+          return updatedProd;
         }
         return prod;
       });
@@ -394,12 +453,16 @@ export default function App() {
       )
     );
 
+    api.voidTransaction(trxId, reason, settings.userName);
+
     // Replenish product inventory
     setProducts((prev) =>
       prev.map((prod) => {
         const item = targetTrx.items.find((i) => i.productId === prod.id);
         if (item) {
-          return { ...prod, stock: prod.stock + item.quantity };
+          const replenished = { ...prod, stock: prod.stock + item.quantity };
+          api.saveProduct(replenished, false);
+          return replenished;
         }
         return prod;
       })
@@ -445,6 +508,7 @@ export default function App() {
         cashOutLogs: [...currentShift.cashOutLogs, newLog],
       });
     }
+    api.addShiftLog(currentShift.id, type, amount, reason);
   };
 
   const handleCloseShift = (actualCash: number, notes: string) => {
@@ -474,6 +538,7 @@ export default function App() {
     };
 
     setCurrentShift(closed);
+    api.closeShift(currentShift.id, actualCash, expectedCashEnd, discrepancy, notes);
   };
 
   // Hold Order Handlers
@@ -496,13 +561,29 @@ export default function App() {
 
   const lowStockCount = products.filter((p) => p.stock <= p.minStock).length;
 
-  // Gate access with Login / Register screen if user not logged in
+  // 1. If viewMode === 'landing', show the high-conversion Member Landing Page
+  if (viewMode === 'landing') {
+    return (
+      <MemberLandingPage
+        settings={settings}
+        customers={customers}
+        vouchers={vouchers}
+        onOpenPos={() => setViewMode('pos')}
+        onCustomerRegistered={(newCust) => {
+          setCustomers((prev) => [newCust, ...prev.filter((c) => c.id !== newCust.id)]);
+        }}
+      />
+    );
+  }
+
+  // 2. Gate access with Login / Register screen if user not logged in to POS
   if (!currentUser) {
     return (
       <AuthScreen
         onLogin={handleLogin}
         onRegister={handleRegister}
         users={users}
+        onOpenMemberPortal={() => setViewMode('landing')}
       />
     );
   }
@@ -512,7 +593,13 @@ export default function App() {
       {/* Navigation Sidebar */}
       <Sidebar
         activeTab={activeTab}
-        setActiveTab={setActiveTab}
+        setActiveTab={(tab) => {
+          if (tab === 'member') {
+            setViewMode('landing');
+          } else {
+            setActiveTab(tab);
+          }
+        }}
         isOpenMobile={isOpenMobile}
         setIsOpenMobile={setIsOpenMobile}
         settings={settings}
@@ -539,6 +626,8 @@ export default function App() {
           currentShift={currentShift}
           onOpenShiftModal={() => setIsShiftModalOpen(true)}
           onOpenHotkeysGuide={() => setIsHotkeysOpen(true)}
+          onOpenFnBScanner={() => setIsFnBScannerOpen(true)}
+          onOpenMemberPortal={() => setViewMode('landing')}
         />
 
         {/* View Routing */}
@@ -566,6 +655,7 @@ export default function App() {
               onRestoreHeldOrder={handleRestoreHeldOrder}
               onDeleteHeldOrder={handleDeleteHeldOrder}
               onOpenHotkeysGuide={() => setIsHotkeysOpen(true)}
+              onOpenFnBScanner={() => setIsFnBScannerOpen(true)}
             />
           )}
 
@@ -621,8 +711,25 @@ export default function App() {
               currentUser={currentUser}
               users={users}
               onDeleteUser={handleDeleteUser}
-              onSaveSettings={(newSettings) => setSettings(newSettings)}
+              onSaveSettings={(newSettings) => {
+                setSettings(newSettings);
+                api.saveSettings(newSettings);
+              }}
             />
+          )}
+
+          {activeTab === 'member' && (
+            <div className="p-4 sm:p-6 lg:p-8">
+              <MemberLandingPage
+                settings={settings}
+                customers={customers}
+                vouchers={vouchers}
+                onOpenPos={() => setActiveTab('kasir')}
+                onCustomerRegistered={(newCust) => {
+                  setCustomers((prev) => [newCust, ...prev.filter((c) => c.id !== newCust.id)]);
+                }}
+              />
+            </div>
           )}
         </main>
       </div>
@@ -648,6 +755,31 @@ export default function App() {
         isOpen={isHotkeysOpen}
         onClose={() => setIsHotkeysOpen(false)}
       />
+
+      {/* F&B Barcode & Inventory Scanner Module Modal */}
+      {isFnBScannerOpen && (
+        <div
+          id="fnb-scanner-modal-backdrop"
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 md:p-6"
+        >
+          <div
+            id="fnb-scanner-modal-container"
+            className="w-full max-w-6xl h-[92vh] max-h-[850px] bg-white rounded-3xl shadow-2xl border border-[#ebdcd3] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200"
+          >
+            <FnBInventoryScannerModule
+              onClose={() => setIsFnBScannerOpen(false)}
+              onApplyToPos={(scannedItems) => {
+                setIsFnBScannerOpen(false);
+                setActiveTab('kasir');
+                // Optional notification
+                alert(
+                  `Berhasil memproses ${scannedItems.length} SKU F&B ke transaksi kasir aktif!`
+                );
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Logout Confirmation Modal */}
       <ConfirmationModal
