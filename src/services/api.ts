@@ -211,12 +211,46 @@ export const api = {
     }
   },
 
-  async deleteUser(id: string): Promise<boolean> {
+  async updateUser(user: AppUser): Promise<boolean> {
     try {
-      const res = await fetch(`/api/users/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      const res = await fetch(`/api/users/${encodeURIComponent(user.id)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(user),
+      });
       return res.ok;
     } catch {
       return false;
+    }
+  },
+
+  async updateUserPassword(id: string, newPassword: string): Promise<{ success: boolean; message?: string; error?: string }> {
+    try {
+      const res = await fetch(`/api/users/${encodeURIComponent(id)}/password`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ newPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        return { success: false, error: data.error || 'Gagal mengubah password.' };
+      }
+      return { success: true, message: data.message };
+    } catch {
+      return { success: false, error: 'Koneksi ke server gagal.' };
+    }
+  },
+
+  async deleteUser(id: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const res = await fetch(`/api/users/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) {
+        return { success: false, error: data.error || 'Gagal menghapus akun.' };
+      }
+      return { success: true };
+    } catch {
+      return { success: false, error: 'Koneksi ke server gagal.' };
     }
   },
 

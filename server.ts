@@ -469,7 +469,7 @@ app.post('/api/users', async (req: Request, res: Response) => {
       sql: 'INSERT INTO users (id, username, password, name, role, email, phone, avatar_url, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);',
       args: [
         userId,
-        username,
+        String(username).trim().toLowerCase(),
         password || '123',
         name,
         role || 'kasir',
@@ -485,9 +485,87 @@ app.post('/api/users', async (req: Request, res: Response) => {
   }
 });
 
+// Update User (Profile & Password)
+app.put('/api/users/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { username, password, name, role, email, phone, avatarUrl } = req.body;
+
+    if (password && String(password).trim().length > 0) {
+      await turso.execute({
+        sql: `UPDATE users SET username = ?, password = ?, name = ?, role = ?, email = ?, phone = ?, avatar_url = ? WHERE id = ?;`,
+        args: [
+          String(username).trim().toLowerCase(),
+          String(password).trim(),
+          name,
+          role || 'kasir',
+          email || '',
+          phone || '',
+          avatarUrl || '',
+          id,
+        ],
+      });
+    } else {
+      await turso.execute({
+        sql: `UPDATE users SET username = ?, name = ?, role = ?, email = ?, phone = ?, avatar_url = ? WHERE id = ?;`,
+        args: [
+          String(username).trim().toLowerCase(),
+          name,
+          role || 'kasir',
+          email || '',
+          phone || '',
+          avatarUrl || '',
+          id,
+        ],
+      });
+    }
+
+    res.json({ success: true, id });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message });
+  }
+});
+
+// Update Super Admin Password Directly
+app.put('/api/users/:id/password', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { newPassword } = req.body;
+
+    if (!newPassword || String(newPassword).trim().length < 4) {
+      return res.status(400).json({ error: 'Kata sandi baru minimal 4 karakter.' });
+    }
+
+    const cleanPass = String(newPassword).trim();
+    await turso.execute({
+      sql: 'UPDATE users SET password = ? WHERE id = ?;',
+      args: [cleanPass, id],
+    });
+
+    res.json({ success: true, id, message: 'Kata sandi berhasil diperbarui.' });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message });
+  }
+});
+
 app.delete('/api/users/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+
+    // Safety guard: cannot delete the last remaining super_admin
+    const target = await turso.execute({
+      sql: 'SELECT role, username FROM users WHERE id = ?;',
+      args: [id],
+    });
+
+    if (target.rows.length > 0 && target.rows[0].role === 'super_admin') {
+      const superAdminsRs = await turso.execute("SELECT COUNT(*) as count FROM users WHERE role = 'super_admin';");
+      const count = Number(superAdminsRs.rows[0]?.count || 0);
+      if (count <= 1) {
+        return res.status(400).json({ error: 'Tidak dapat menghapus satu-satunya akun Super Admin aktif.' });
+      }
+    }
+
     await turso.execute({
       sql: 'DELETE FROM users WHERE id = ?;',
       args: [id],

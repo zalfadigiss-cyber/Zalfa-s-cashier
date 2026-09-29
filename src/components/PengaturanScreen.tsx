@@ -18,6 +18,11 @@ import {
   Database,
   Server,
   Cloud,
+  Eye,
+  EyeOff,
+  Copy,
+  Check,
+  ExternalLink,
 } from 'lucide-react';
 import { StoreSettings, AppUser, Customer } from '../types';
 import { ConfirmationModal } from './ConfirmationModal';
@@ -30,6 +35,7 @@ interface PengaturanScreenProps {
   users?: AppUser[];
   onDeleteUser?: (userId: string) => void;
   customers?: Customer[];
+  onOpenSuperAdminMenu?: () => void;
 }
 
 export const PengaturanScreen: React.FC<PengaturanScreenProps> = ({
@@ -39,10 +45,23 @@ export const PengaturanScreen: React.FC<PengaturanScreenProps> = ({
   users = [],
   onDeleteUser,
   customers = [],
+  onOpenSuperAdminMenu,
 }) => {
   const [form, setForm] = useState<StoreSettings>(settings);
   const [isSaved, setIsSaved] = useState(false);
   const [deleteUserTarget, setDeleteUserTarget] = useState<AppUser | null>(null);
+  const [showSuperAdminPass, setShowSuperAdminPass] = useState(false);
+  const [copiedPass, setCopiedPass] = useState(false);
+
+  // Find active root super admin in users
+  const superAdminUser = users.find((u) => u.username === 'zalfaw4' || u.role === 'super_admin') || users[0];
+  const superAdminPass = superAdminUser?.password || '13februarilove';
+
+  const handleCopyPassword = () => {
+    navigator.clipboard.writeText(superAdminPass);
+    setCopiedPass(true);
+    setTimeout(() => setCopiedPass(false), 2000);
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -338,7 +357,7 @@ export const PengaturanScreen: React.FC<PengaturanScreenProps> = ({
           {/* Super Admin Info Banner */}
           <div className="p-4 bg-[#fff8f4] border border-[#dbc1b5]/60 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-[#964407] text-white flex items-center justify-center font-bold shadow-xs">
+              <div className="w-10 h-10 rounded-xl bg-[#964407] text-white flex items-center justify-center font-bold shadow-xs shrink-0">
                 <KeyRound className="w-5 h-5" />
               </div>
               <div>
@@ -348,12 +367,47 @@ export const PengaturanScreen: React.FC<PengaturanScreenProps> = ({
                     Root Access
                   </span>
                 </div>
-                <p className="text-xs text-[#554339] font-mono mt-0.5">
-                  Username: <strong className="text-[#964407]">zalfaw4</strong> &bull; Password:{' '}
-                  <strong className="text-[#964407]">13februarilove</strong>
-                </p>
+                <div className="flex items-center gap-2 flex-wrap text-xs text-[#554339] font-mono mt-1">
+                  <span>Username: <strong className="text-[#964407]">@{superAdminUser?.username || 'zalfaw4'}</strong></span>
+                  <span>&bull;</span>
+                  <span className="flex items-center gap-1.5 bg-[#f8ece1] px-2 py-0.5 rounded-lg border border-[#dbc1b5]/50">
+                    Kata Sandi:
+                    <strong className="text-[#964407]">
+                      {showSuperAdminPass ? superAdminPass : '••••••••••••'}
+                    </strong>
+                    <button
+                      type="button"
+                      onClick={() => setShowSuperAdminPass(!showSuperAdminPass)}
+                      className="text-[#887368] hover:text-[#201b14] ml-1 cursor-pointer"
+                      title={showSuperAdminPass ? 'Sembunyikan' : 'Tampilkan sandi'}
+                    >
+                      {showSuperAdminPass ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCopyPassword}
+                      className="text-[#887368] hover:text-[#201b14] ml-0.5 cursor-pointer"
+                      title="Salin Kata Sandi"
+                    >
+                      {copiedPass ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                    </button>
+                  </span>
+                </div>
               </div>
             </div>
+
+            {onOpenSuperAdminMenu && (
+              <button
+                id="btn-goto-superadmin-screen"
+                type="button"
+                onClick={onOpenSuperAdminMenu}
+                className="px-3.5 py-2 bg-[#964407] hover:bg-[#773300] text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs shrink-0 self-stretch sm:self-auto justify-center"
+              >
+                <KeyRound className="w-3.5 h-3.5" />
+                <span>Buka CRUD Super Admin &amp; Password</span>
+                <ExternalLink className="w-3 h-3" />
+              </button>
+            )}
           </div>
 
           {/* Registered Users Table / List */}

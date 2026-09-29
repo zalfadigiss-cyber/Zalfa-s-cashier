@@ -7,7 +7,8 @@ export type TabType =
   | 'riwayat'
   | 'laporan'
   | 'pengaturan'
-  | 'member';
+  | 'member'
+  | 'superadmin';
 
 export interface Category {
   id: string;

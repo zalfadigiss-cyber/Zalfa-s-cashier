@@ -41,6 +41,7 @@ import { HotkeysModal } from './components/HotkeysModal';
 import { ConfirmationModal } from './components/ConfirmationModal';
 import { FnBInventoryScannerModule, FnBCartItem } from './components/FnBInventoryScannerModule';
 import { MemberLandingPage } from './components/MemberLandingPage';
+import { SuperAdminScreen } from './components/SuperAdminScreen';
 import { getIndonesianDate, getIndonesianTime } from './utils/format';
 import { api } from './services/api';
 
@@ -301,6 +302,9 @@ export default function App() {
   // User Authentication & Account Handlers
   const handleLogin = (user: AppUser) => {
     setCurrentUser(user);
+    try {
+      localStorage.setItem('kasirku_current_user', JSON.stringify(user));
+    } catch {}
     // Automatically update cashier identity on receipts & session
     setSettings((prev) => ({
       ...prev,
@@ -311,17 +315,41 @@ export default function App() {
   };
 
   const handleRegister = (newUser: AppUser) => {
-    setUsers((prev) => [newUser, ...prev]);
+    setUsers((prev) => [newUser, ...prev.filter((u) => u.id !== newUser.id)]);
     api.saveUser(newUser);
+  };
+
+  const handleUpdateUser = (updatedUser: AppUser) => {
+    setUsers((prev) => prev.map((u) => (u.id === updatedUser.id ? updatedUser : u)));
+    api.updateUser(updatedUser);
+
+    // If updated user is currently logged in, sync currentUser & settings
+    if (currentUser && currentUser.id === updatedUser.id) {
+      setCurrentUser(updatedUser);
+      try {
+        localStorage.setItem('kasirku_current_user', JSON.stringify(updatedUser));
+      } catch {}
+      setSettings((prev) => ({
+        ...prev,
+        userName: updatedUser.name,
+        userEmail: updatedUser.email || prev.userEmail,
+        userPhotoUrl: updatedUser.avatarUrl || prev.userPhotoUrl,
+      }));
+    }
   };
 
   const handleLogout = () => {
     setCurrentUser(null);
+    try {
+      localStorage.removeItem('kasirku_current_user');
+    } catch {}
   };
 
-  const handleDeleteUser = (userId: string) => {
-    setUsers((prev) => prev.filter((u) => u.id !== userId));
-    api.deleteUser(userId);
+  const handleDeleteUser = async (userId: string) => {
+    const res = await api.deleteUser(userId);
+    if (res.success) {
+      setUsers((prev) => prev.filter((u) => u.id !== userId));
+    }
   };
 
   // Product Operations
@@ -628,6 +656,7 @@ export default function App() {
           onOpenHotkeysGuide={() => setIsHotkeysOpen(true)}
           onOpenFnBScanner={() => setIsFnBScannerOpen(true)}
           onOpenMemberPortal={() => setViewMode('landing')}
+          onOpenSuperAdmin={() => setActiveTab('superadmin')}
         />
 
         {/* View Routing */}
@@ -712,9 +741,26 @@ export default function App() {
               users={users}
               customers={customers}
               onDeleteUser={handleDeleteUser}
+              onOpenSuperAdminMenu={() => setActiveTab('superadmin')}
               onSaveSettings={(newSettings) => {
                 setSettings(newSettings);
                 api.saveSettings(newSettings);
+              }}
+            />
+          )}
+
+          {activeTab === 'superadmin' && (
+            <SuperAdminScreen
+              currentUser={currentUser}
+              users={users}
+              onAddUser={handleRegister}
+              onUpdateUser={handleUpdateUser}
+              onDeleteUser={handleDeleteUser}
+              onRefreshUsers={async () => {
+                const latestUsers = await api.getUsers();
+                if (latestUsers && latestUsers.length > 0) {
+                  setUsers(latestUsers);
+                }
               }}
             />
           )}

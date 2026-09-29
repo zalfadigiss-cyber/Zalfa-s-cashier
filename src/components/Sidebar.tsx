@@ -15,6 +15,7 @@ import {
   CreditCard,
   ShieldCheck,
   Crown,
+  KeyRound,
 } from 'lucide-react';
 import { TabType, StoreSettings, AppUser } from '../types';
 
@@ -39,7 +40,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onLogout,
   onOpenHelp,
 }) => {
-  const navItems: { id: TabType; label: string; icon: React.ReactNode }[] = [
+  const isSuperAdmin = currentUser?.role === 'super_admin';
+
+  const navItems: { id: TabType; label: string; icon: React.ReactNode; isSuperAdminOnly?: boolean }[] = [
     { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="w-5 h-5" /> },
     { id: 'kasir', label: 'Kasir', icon: <ShoppingCart className="w-5 h-5" /> },
     { id: 'member', label: 'Member & Loyalty', icon: <Crown className="w-5 h-5" /> },
@@ -49,6 +52,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'riwayat', label: 'Riwayat Penjualan', icon: <History className="w-5 h-5" /> },
     { id: 'laporan', label: 'Laporan', icon: <BarChart3 className="w-5 h-5" /> },
     { id: 'pengaturan', label: 'Pengaturan', icon: <Settings className="w-5 h-5" /> },
+    ...(isSuperAdmin
+      ? [
+          {
+            id: 'superadmin' as TabType,
+            label: 'Super Admin & Password',
+            icon: <KeyRound className="w-5 h-5 text-amber-600" />,
+            isSuperAdminOnly: true,
+          },
+        ]
+      : []),
   ];
 
   const handleSelectTab = (tab: TabType) => {
@@ -106,17 +119,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
             return (
               <button
                 key={item.id}
+                id={`sidebar-nav-${item.id}`}
                 onClick={() => handleSelectTab(item.id)}
-                className={`flex items-center gap-3.5 px-3.5 py-2.5 rounded-lg text-sm font-semibold transition-all duration-150 text-left ${
+                className={`flex items-center justify-between px-3.5 py-2.5 rounded-lg text-sm font-semibold transition-all duration-150 text-left ${
                   isActive
                     ? 'bg-[#b65c21] text-white shadow-sm'
                     : 'text-[#554339] hover:bg-[#ece0d6] active:scale-[0.98]'
                 }`}
               >
-                <span className={isActive ? 'text-white' : 'text-[#887368]'}>
-                  {item.icon}
-                </span>
-                <span>{item.label}</span>
+                <div className="flex items-center gap-3.5 min-w-0">
+                  <span className={isActive ? 'text-white' : 'text-[#887368]'}>
+                    {item.icon}
+                  </span>
+                  <span className="truncate">{item.label}</span>
+                </div>
+                {item.isSuperAdminOnly && (
+                  <span className="ml-1.5 px-1.5 py-0.2 rounded text-[9px] font-black uppercase tracking-wider bg-[#ffbe99] text-[#592600]">
+                    CRUD
+                  </span>
+                )}
               </button>
             );
           })}

@@ -16,6 +16,7 @@ import {
   Database,
   ScanBarcode,
   Crown,
+  KeyRound,
 } from 'lucide-react';
 import { StoreSettings, Branch, ShiftSession, AppUser } from '../types';
 
@@ -37,6 +38,7 @@ interface TopHeaderProps {
   onOpenHotkeysGuide: () => void;
   onOpenFnBScanner?: () => void;
   onOpenMemberPortal?: () => void;
+  onOpenSuperAdmin?: () => void;
 }
 
 export const TopHeader: React.FC<TopHeaderProps> = ({
@@ -57,6 +59,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   onOpenHotkeysGuide,
   onOpenFnBScanner,
   onOpenMemberPortal,
+  onOpenSuperAdmin,
 }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
@@ -337,7 +340,24 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
                 <p>Email: <span className="font-semibold text-[#201b14]">{currentUser?.email || settings.userEmail}</span></p>
               </div>
 
-              <div className="pt-2.5 mt-1 border-t border-[#dbc1b5]/40">
+              {currentUser?.role === 'super_admin' && onOpenSuperAdmin && (
+                <div className="pt-2">
+                  <button
+                    id="topheader-btn-goto-superadmin"
+                    type="button"
+                    onClick={() => {
+                      setShowProfileMenu(false);
+                      onOpenSuperAdmin();
+                    }}
+                    className="w-full flex items-center justify-center gap-2 py-2 px-3 text-xs font-bold text-[#592600] bg-[#ffbe99]/50 hover:bg-[#ffbe99] rounded-xl transition-colors cursor-pointer border border-[#ffbe99]"
+                  >
+                    <KeyRound className="w-3.5 h-3.5 text-[#964407]" />
+                    <span>Menu &amp; Password Super Admin</span>
+                  </button>
+                </div>
+              )}
+
+              <div className="pt-2 mt-1 border-t border-[#dbc1b5]/40">
                 <button
                   id="topheader-btn-logout"
                   onClick={() => {

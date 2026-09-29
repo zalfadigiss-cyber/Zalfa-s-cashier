@@ -55,11 +55,17 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const [regError, setRegError] = useState<string | null>(null);
   const [regSuccess, setRegSuccess] = useState<string | null>(null);
 
+  // Super Admin account from users list
+  const superAdminAccount = users.find((u) => u.username === 'zalfaw4' || u.role === 'super_admin') || users[0];
+  const superAdminUserStr = superAdminAccount?.username || 'zalfaw4';
+  const superAdminPassStr = superAdminAccount?.password || '13februarilove';
+  const [showAutofillPass, setShowAutofillPass] = useState(false);
+
   // Super Admin fast credential autofill
   const handleAutoFillSuperAdmin = () => {
     setActiveTab('login');
-    setLoginUsername('zalfaw4');
-    setLoginPassword('13februarilove');
+    setLoginUsername(superAdminUserStr);
+    setLoginPassword(superAdminPassStr);
     setLoginError(null);
   };
 
@@ -232,13 +238,24 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   Siap Pakai
                 </span>
               </div>
-              <div className="text-xs space-y-1 font-mono text-white/90">
+              <div className="text-xs space-y-1.5 font-mono text-white/90">
                 <p>
-                  Username: <strong className="text-white bg-black/40 px-1.5 py-0.5 rounded">zalfaw4</strong>
+                  Username: <strong className="text-white bg-black/40 px-1.5 py-0.5 rounded">@{superAdminUserStr}</strong>
                 </p>
-                <p>
-                  Password: <strong className="text-white bg-black/40 px-1.5 py-0.5 rounded">13februarilove</strong>
-                </p>
+                <div className="flex items-center gap-1.5">
+                  <span>Password:</span>
+                  <strong className="text-white bg-black/40 px-1.5 py-0.5 rounded">
+                    {showAutofillPass ? superAdminPassStr : '••••••••••••'}
+                  </strong>
+                  <button
+                    type="button"
+                    onClick={() => setShowAutofillPass(!showAutofillPass)}
+                    className="p-0.5 text-[#dbc1b5] hover:text-white transition-colors cursor-pointer"
+                    title={showAutofillPass ? 'Sembunyikan' : 'Tampilkan'}
+                  >
+                    {showAutofillPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
               </div>
               <button
                 id="btn-autofill-superadmin-card"
