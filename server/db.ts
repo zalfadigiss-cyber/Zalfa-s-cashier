@@ -116,6 +116,7 @@ export async function initDatabase() {
         total_spent REAL DEFAULT 0,
         transactions_count INTEGER DEFAULT 0,
         password TEXT DEFAULT '123456',
+        favorite_category TEXT DEFAULT 'Coffee',
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
       );
     `);
@@ -128,6 +129,11 @@ export async function initDatabase() {
     }
     try {
       await turso.execute("ALTER TABLE customers ADD COLUMN created_at TEXT DEFAULT CURRENT_TIMESTAMP;");
+    } catch {
+      // Column already exists
+    }
+    try {
+      await turso.execute("ALTER TABLE customers ADD COLUMN favorite_category TEXT DEFAULT 'Coffee';");
     } catch {
       // Column already exists
     }

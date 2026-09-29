@@ -710,6 +710,7 @@ export default function App() {
               settings={settings}
               currentUser={currentUser}
               users={users}
+              customers={customers}
               onDeleteUser={handleDeleteUser}
               onSaveSettings={(newSettings) => {
                 setSettings(newSettings);

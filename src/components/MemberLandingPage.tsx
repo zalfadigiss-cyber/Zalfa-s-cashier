@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Sparkles,
   Crown,
@@ -31,10 +31,22 @@ import {
   Eye,
   EyeOff,
   Store,
+  FileSpreadsheet,
+  RefreshCw,
 } from 'lucide-react';
 import { Customer, StoreSettings, VoucherPromo } from '../types';
 import { api } from '../services/api';
 import { formatRupiah } from '../utils/format';
+import {
+  initGoogleAuth,
+  signInWithGoogle,
+  getGoogleAccessToken,
+  appendMemberToGoogleSheet,
+  getSavedSpreadsheetId,
+  getOrCreateMemberSpreadsheet,
+} from '../services/googleSheets';
+import { GoogleSignInButton, GoogleSheetsSyncCard } from './GoogleSheetsSyncCard';
+import { User as FirebaseUser } from 'firebase/auth';
 
 interface MemberLandingPageProps {
   settings: StoreSettings;
@@ -83,6 +95,68 @@ export const MemberLandingPage: React.FC<MemberLandingPageProps> = ({
   const [signUpLoading, setSignUpLoading] = useState(false);
   const [signUpError, setSignUpError] = useState<string | null>(null);
   const [signUpSuccessMsg, setSignUpSuccessMsg] = useState<string | null>(null);
+
+  // Google Sheets Integration State
+  const [googleUser, setGoogleUser] = useState<FirebaseUser | null>(null);
+  const [googleToken, setGoogleToken] = useState<string | null>(getGoogleAccessToken());
+  const [spreadsheetUrl, setSpreadsheetUrl] = useState<string | null>(() => {
+    const saved = getSavedSpreadsheetId();
+    return saved ? `https://docs.google.com/spreadsheets/d/${saved}/edit` : null;
+  });
+  const [isQuickGoogleSigningUp, setIsQuickGoogleSigningUp] = useState(false);
+  const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
+
+  // Listen to Google Auth status
+  useEffect(() => {
+    const unsub = initGoogleAuth(
+      (u, tok) => {
+        setGoogleUser(u);
+        setGoogleToken(tok);
+        const savedId = getSavedSpreadsheetId();
+        if (savedId) {
+          setSpreadsheetUrl(`https://docs.google.com/spreadsheets/d/${savedId}/edit`);
+        }
+      },
+      () => {
+        setGoogleUser(null);
+        setGoogleToken(null);
+      }
+    );
+    return () => unsub();
+  }, []);
+
+  // Quick Sign Up with Google
+  const handleGoogleQuickSignUp = async () => {
+    setIsQuickGoogleSigningUp(true);
+    setSignUpError(null);
+    try {
+      const res = await signInWithGoogle();
+      setGoogleUser(res.user);
+      setGoogleToken(res.accessToken);
+
+      if (res.user.displayName) {
+        setSignUpName(res.user.displayName);
+      }
+      if (res.user.email) {
+        setSignUpEmail(res.user.email);
+      }
+
+      // Verify or create the member spreadsheet in Google Sheets
+      const sheetInfo = await getOrCreateMemberSpreadsheet(res.accessToken, settings.storeName);
+      setSpreadsheetUrl(sheetInfo.url);
+
+      // Focus phone number input
+      const phoneEl = document.getElementById('signup-phone');
+      if (phoneEl) {
+        phoneEl.focus();
+      }
+    } catch (err: any) {
+      console.warn('[QuickGoogleSignUp] Error:', err);
+      setSignUpError(err?.message || 'Gagal menghubungkan ke akun Google.');
+    } finally {
+      setIsQuickGoogleSigningUp(false);
+    }
+  };
 
   // Calculator slider state
   const [monthlySpend, setMonthlySpend] = useState<number>(350000);
@@ -154,26 +228,34 @@ export const MemberLandingPage: React.FC<MemberLandingPageProps> = ({
     setShowMemberCardModal(true);
   };
 
-  // Sign Up Handler
+  // Sign Up Handler (Synchronizes with Turso & Google Sheets)
   const handleSignUpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSignUpError(null);
     setSignUpSuccessMsg(null);
 
     const cleanName = signUpName.trim();
-    const cleanPhone = signUpPhone.trim().replace(/[^0-9]/g, '');
+    const rawDigits = signUpPhone.trim().replace(/[^0-9]/g, '');
 
-    if (!cleanName) {
-      setSignUpError('Silakan masukkan nama lengkap Anda.');
+    if (!cleanName || cleanName.length < 2) {
+      setSignUpError('Silakan masukkan nama lengkap yang valid (minimal 2 karakter).');
       return;
     }
-    if (cleanPhone.length < 9) {
-      setSignUpError('Nomor telepon/WhatsApp minimal 9-13 digit angka.');
+    if (rawDigits.length < 9) {
+      setSignUpError('Nomor telepon/WhatsApp minimal 9 hingga 13 digit angka.');
       return;
     }
     if (!signUpPassword || signUpPassword.length < 4) {
       setSignUpError('PIN atau kata sandi minimal 4 karakter demi keamanan.');
       return;
+    }
+
+    // Standardize Indonesian phone to 08...
+    let cleanPhone = rawDigits;
+    if (rawDigits.startsWith('628')) {
+      cleanPhone = '0' + rawDigits.slice(2);
+    } else if (!rawDigits.startsWith('0') && rawDigits.startsWith('8')) {
+      cleanPhone = '0' + rawDigits;
     }
 
     setSignUpLoading(true);
@@ -191,8 +273,27 @@ export const MemberLandingPage: React.FC<MemberLandingPageProps> = ({
       return;
     }
 
-    // Success!
-    setSignUpSuccessMsg('Pendaftaran Berhasil! 50 Poin Bonus Selamat Datang telah ditambahkan ke akun Anda.');
+    // If Google token is active, save directly to Google Sheets
+    let isSheetSaved = false;
+    const activeToken = googleToken || getGoogleAccessToken();
+    if (activeToken) {
+      try {
+        const sheetRes = await appendMemberToGoogleSheet(res.member, activeToken, settings.storeName);
+        if (sheetRes.success && sheetRes.spreadsheetUrl) {
+          isSheetSaved = true;
+          setSpreadsheetUrl(sheetRes.spreadsheetUrl);
+        }
+      } catch (err) {
+        console.warn('[GoogleSheetAutoAppend] Warning:', err);
+      }
+    }
+
+    // Success notification
+    const msg = isSheetSaved
+      ? 'Pendaftaran Berhasil! 50 Poin Bonus Selamat Datang telah aktif & data tersimpan di Turso Cloud & Google Spreadsheet.'
+      : 'Pendaftaran Berhasil! 50 Poin Bonus Selamat Datang telah ditambahkan ke akun Anda di Turso Cloud DB.';
+
+    setSignUpSuccessMsg(msg);
     setActiveMember(res.member);
     try {
       localStorage.setItem('kasirku_active_member', JSON.stringify(res.member));
@@ -207,7 +308,7 @@ export const MemberLandingPage: React.FC<MemberLandingPageProps> = ({
     setTimeout(() => {
       setAuthModalMode(null);
       setShowMemberCardModal(true);
-    }, 1500);
+    }, 1800);
   };
 
   // Demo Fast Login
@@ -331,6 +432,18 @@ export const MemberLandingPage: React.FC<MemberLandingPageProps> = ({
                 </button>
               </>
             )}
+
+            {/* Google Sheets Sync Button */}
+            <button
+              id="nav-sheets-sync-btn"
+              type="button"
+              onClick={() => setIsSyncModalOpen(true)}
+              className="hidden sm:flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-emerald-50 hover:bg-emerald-100 border border-emerald-300/80 text-emerald-800 transition-all shadow-2xs cursor-pointer active:scale-95"
+              title="Google Sheets & Cloud Sync"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-700" />
+              <span>{googleToken ? 'Sheet Terhubung' : 'Google Sheets'}</span>
+            </button>
 
             {/* Switch to Cashier / POS App */}
             <div className="h-6 w-[1px] bg-[#ebdcd3] mx-1 hidden sm:block" />
@@ -554,6 +667,16 @@ export const MemberLandingPage: React.FC<MemberLandingPageProps> = ({
             </div>
           </div>
         </div>
+      </section>
+
+      {/* ========================================================= */}
+      {/* 2.5 CLOUD DATABASE & GOOGLE SHEETS LIVE SYNC SECTION       */}
+      {/* ========================================================= */}
+      <section id="sync-cloud" className="pt-8 pb-4 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <GoogleSheetsSyncCard
+          customers={customers}
+          storeName={settings.storeName}
+        />
       </section>
 
       {/* ========================================================= */}
@@ -1525,13 +1648,29 @@ export const MemberLandingPage: React.FC<MemberLandingPageProps> = ({
               {authModalMode === 'signup' && (
                 <form onSubmit={handleSignUpSubmit} className="space-y-4">
                   {signUpSuccessMsg ? (
-                    <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold space-y-2 text-center">
-                      <div className="w-10 h-10 rounded-full bg-emerald-600 text-white flex items-center justify-center mx-auto">
-                        <CheckCircle2 className="w-6 h-6" />
+                    <div className="p-5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold space-y-3 text-center animate-in zoom-in-95 duration-200">
+                      <div className="w-12 h-12 rounded-full bg-emerald-600 text-white flex items-center justify-center mx-auto shadow-sm">
+                        <CheckCircle2 className="w-7 h-7" />
                       </div>
-                      <p className="text-sm font-bold text-emerald-900">Selamat Datang di KASIRKU VIP!</p>
-                      <p>{signUpSuccessMsg}</p>
-                      <p className="text-[11px] text-emerald-700">Membuka kartu member digital Anda...</p>
+                      <p className="text-base font-bold text-emerald-950 font-serif">Selamat Datang di VIP Club!</p>
+                      <p className="text-emerald-800 text-xs leading-relaxed">{signUpSuccessMsg}</p>
+
+                      {spreadsheetUrl && (
+                        <div className="pt-2">
+                          <a
+                            href={spreadsheetUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white border border-emerald-300 text-emerald-900 font-bold text-xs shadow-xs hover:bg-emerald-100/60 transition-colors"
+                          >
+                            <FileSpreadsheet className="w-4 h-4 text-emerald-700" />
+                            <span>Buka Data di Google Sheet</span>
+                            <ExternalLink className="w-3.5 h-3.5 text-emerald-700" />
+                          </a>
+                        </div>
+                      )}
+
+                      <p className="text-[11px] text-emerald-700 pt-1">Membuka kartu member digital Anda...</p>
                     </div>
                   ) : (
                     <>
@@ -1542,12 +1681,43 @@ export const MemberLandingPage: React.FC<MemberLandingPageProps> = ({
                         </div>
                       )}
 
+                      {/* Google Quick Registration Option */}
+                      <div className="space-y-2">
+                        <GoogleSignInButton
+                          id="signup-google-quick-btn"
+                          onClick={handleGoogleQuickSignUp}
+                          disabled={isQuickGoogleSigningUp || signUpLoading}
+                          label={
+                            googleUser
+                              ? `Google Terhubung: ${googleUser.email}`
+                              : isQuickGoogleSigningUp
+                              ? 'Menghubungkan Akun Google...'
+                              : 'Daftar Cepat dengan Akun Google'
+                          }
+                          className="w-full py-2.5"
+                        />
+                        {googleUser && (
+                          <div className="flex items-center justify-center gap-1.5 text-[11px] text-emerald-700 font-bold">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>Data pendaftaran otomatis tercatat ke Google Spreadsheet</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-3 my-1">
+                        <div className="flex-1 h-px bg-[#ebdcd3]" />
+                        <span className="text-[10px] font-bold text-[#847870] uppercase tracking-wider">
+                          Atau Lengkapi Data Pendaftaran
+                        </span>
+                        <div className="flex-1 h-px bg-[#ebdcd3]" />
+                      </div>
+
                       {/* Bonus Banner */}
                       <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200/80 flex items-center gap-2.5 text-xs text-[#7e3905]">
                         <Gift className="w-5 h-5 text-[#964407] shrink-0" />
                         <span>
                           Daftar sekarang & dapatkan <strong className="text-[#964407]">50 Poin Bonus</strong> langsung di
-                          Turso!
+                          Turso Cloud & Google Sheets!
                         </span>
                       </div>
 
@@ -1597,7 +1767,7 @@ export const MemberLandingPage: React.FC<MemberLandingPageProps> = ({
                       {/* Email (Optional) */}
                       <div>
                         <label className="block text-xs font-bold text-[#51443b] mb-1">
-                          Email (Opsional untuk struk digital)
+                          Email (Opsional untuk struk digital & Google Sheet)
                         </label>
                         <div className="relative">
                           <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[#847870]">
@@ -1668,7 +1838,7 @@ export const MemberLandingPage: React.FC<MemberLandingPageProps> = ({
                         className="w-full py-3.5 rounded-2xl bg-[#964407] hover:bg-[#7e3905] text-white font-extrabold text-sm shadow-md transition-all cursor-pointer active:scale-95 disabled:opacity-60 flex items-center justify-center gap-2 mt-2"
                       >
                         {signUpLoading ? (
-                          <span>Menyimpan ke Turso Database...</span>
+                          <span>Menyimpan ke Turso & Google Sheets...</span>
                         ) : (
                           <>
                             <Sparkles className="w-4 h-4 text-amber-300" />
@@ -1676,6 +1846,20 @@ export const MemberLandingPage: React.FC<MemberLandingPageProps> = ({
                           </>
                         )}
                       </button>
+
+                      {/* Database & Sheets status pill */}
+                      <div className="p-2.5 rounded-xl bg-stone-50 border border-stone-200/80 text-[11px] text-[#69615b] flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                          <span>Turso DB: Aktif</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-700" />
+                          <span>
+                            Google Sheets: {googleToken ? 'Tersinkron' : 'Siap Ditautkan'}
+                          </span>
+                        </div>
+                      </div>
                     </>
                   )}
                 </form>
@@ -1911,6 +2095,45 @@ export const MemberLandingPage: React.FC<MemberLandingPageProps> = ({
                   <span>Belanja di Kasir POS</span>
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* 13. GOOGLE SHEETS & CLOUD SYNC MODAL                      */}
+      {/* ========================================================= */}
+      {isSyncModalOpen && (
+        <div
+          id="sheets-sync-modal-backdrop"
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200"
+        >
+          <div className="w-full max-w-2xl bg-white rounded-3xl shadow-2xl border border-[#ebdcd3] overflow-hidden flex flex-col my-auto max-h-[92vh] animate-in zoom-in-95 duration-200">
+            <div className="px-6 py-4 bg-[#fff8f4] border-b border-[#ebdcd3] flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <FileSpreadsheet className="w-5 h-5 text-emerald-700" />
+                <h3 className="font-extrabold text-base text-[#201b14] font-serif">
+                  Google Sheets & Cloud Database Sync
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsSyncModalOpen(false)}
+                className="p-1.5 text-[#847870] hover:text-[#201b14] rounded-xl hover:bg-stone-100 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto">
+              <GoogleSheetsSyncCard
+                customers={customers}
+                storeName={settings.storeName}
+                onSyncComplete={() => {
+                  const saved = getSavedSpreadsheetId();
+                  if (saved) setSpreadsheetUrl(`https://docs.google.com/spreadsheets/d/${saved}/edit`);
+                }}
+              />
             </div>
           </div>
         </div>

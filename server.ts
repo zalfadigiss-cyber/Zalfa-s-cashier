@@ -577,6 +577,7 @@ app.get('/api/customers', async (req: Request, res: Response) => {
       totalSpent: Number(row.total_spent || 0),
       transactionsCount: Number(row.transactions_count || 0),
       createdAt: row.created_at ? String(row.created_at) : undefined,
+      favoriteCategory: String(row.favorite_category || 'Coffee'),
     }));
     res.json(customers);
   } catch (err: any) {
@@ -586,11 +587,11 @@ app.get('/api/customers', async (req: Request, res: Response) => {
 
 app.post('/api/customers', async (req: Request, res: Response) => {
   try {
-    const { id, name, phone, email, tier, points, totalSpent, transactionsCount, password } = req.body;
+    const { id, name, phone, email, tier, points, totalSpent, transactionsCount, password, favoriteCategory } = req.body;
     const custId = id || 'cust-' + Date.now();
     await turso.execute({
-      sql: `INSERT INTO customers (id, name, phone, email, tier, points, total_spent, transactions_count, password, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+      sql: `INSERT INTO customers (id, name, phone, email, tier, points, total_spent, transactions_count, password, favorite_category, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
       args: [
         custId,
         name,
@@ -601,6 +602,7 @@ app.post('/api/customers', async (req: Request, res: Response) => {
         totalSpent || 0,
         transactionsCount || 0,
         password || '123456',
+        favoriteCategory || 'Coffee',
         new Date().toISOString(),
       ],
     });
@@ -613,11 +615,11 @@ app.post('/api/customers', async (req: Request, res: Response) => {
 app.put('/api/customers/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { name, phone, email, tier, points, totalSpent, transactionsCount } = req.body;
+    const { name, phone, email, tier, points, totalSpent, transactionsCount, favoriteCategory } = req.body;
     await turso.execute({
-      sql: `UPDATE customers SET name = ?, phone = ?, email = ?, tier = ?, points = ?, total_spent = ?, transactions_count = ?
+      sql: `UPDATE customers SET name = ?, phone = ?, email = ?, tier = ?, points = ?, total_spent = ?, transactions_count = ?, favorite_category = ?
             WHERE id = ?;`,
-      args: [name, phone || '', email || '', tier, points, totalSpent, transactionsCount, id],
+      args: [name, phone || '', email || '', tier, points, totalSpent, transactionsCount, favoriteCategory || 'Coffee', id],
     });
     res.json({ success: true, id });
   } catch (err: any) {
@@ -634,19 +636,34 @@ app.post('/api/members/signup', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Nama, nomor telepon/WhatsApp, dan kata sandi wajib diisi.' });
     }
 
-    const cleanPhone = String(phone).trim().replace(/[^0-9]/g, '');
+    let rawDigits = String(phone).trim().replace(/[^0-9]/g, '');
+    if (rawDigits.length < 9) {
+      return res.status(400).json({ error: 'Nomor telepon/WhatsApp tidak valid (minimal 9 digit).' });
+    }
+
+    // Standardize Indonesian phone to 08...
+    let cleanPhone = rawDigits;
+    if (rawDigits.startsWith('628')) {
+      cleanPhone = '0' + rawDigits.slice(2);
+    } else if (!rawDigits.startsWith('0') && rawDigits.startsWith('8')) {
+      cleanPhone = '0' + rawDigits;
+    }
+
+    const altPhone62 = '62' + cleanPhone.replace(/^0/, '');
     const cleanName = String(name).trim();
     const cleanEmail = email ? String(email).trim().toLowerCase() : '';
 
-    // Check if phone already registered in Turso
+    // Check if phone or email already registered in Turso
     const existing = await turso.execute({
-      sql: 'SELECT id, phone, email FROM customers WHERE phone = ? OR (email != "" AND email = ?);',
-      args: [cleanPhone, cleanEmail],
+      sql: `SELECT id, phone, email FROM customers 
+            WHERE phone = ? OR phone = ? OR phone = ? 
+               OR (email != "" AND LOWER(email) = LOWER(?));`,
+      args: [cleanPhone, rawDigits, altPhone62, cleanEmail],
     });
 
     if (existing.rows.length > 0) {
       return res.status(400).json({
-        error: 'Nomor telepon atau email ini sudah terdaftar sebagai member. Silakan masuk (Sign In).',
+        error: 'Nomor telepon atau email ini sudah terdaftar sebagai member. Silakan langsung Masuk (Sign In).',
       });
     }
 
@@ -654,10 +671,11 @@ app.post('/api/members/signup', async (req: Request, res: Response) => {
     const welcomePoints = 50; // Welcome gift points
     const defaultTier = 'Reguler';
     const createdAt = new Date().toISOString();
+    const chosenFavCat = favoriteCategory || 'Coffee';
 
     await turso.execute({
-      sql: `INSERT INTO customers (id, name, phone, email, tier, points, total_spent, transactions_count, password, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+      sql: `INSERT INTO customers (id, name, phone, email, tier, points, total_spent, transactions_count, password, favorite_category, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
       args: [
         newId,
         cleanName,
@@ -668,6 +686,7 @@ app.post('/api/members/signup', async (req: Request, res: Response) => {
         0,
         0,
         password,
+        chosenFavCat,
         createdAt,
       ],
     });
@@ -682,7 +701,7 @@ app.post('/api/members/signup', async (req: Request, res: Response) => {
       totalSpent: 0,
       transactionsCount: 0,
       createdAt,
-      favoriteCategory,
+      favoriteCategory: chosenFavCat,
     };
 
     res.status(201).json({
@@ -706,14 +725,28 @@ app.post('/api/members/signin', async (req: Request, res: Response) => {
     }
 
     const cleanId = String(identifier).trim();
-    const numericPhone = cleanId.replace(/[^0-9]/g, '');
+    const rawDigits = cleanId.replace(/[^0-9]/g, '');
+    let phoneVariant0 = rawDigits;
+    let phoneVariant62 = rawDigits;
 
-    // Search by phone or email
+    if (rawDigits.startsWith('628')) {
+      phoneVariant0 = '0' + rawDigits.slice(2);
+      phoneVariant62 = rawDigits;
+    } else if (rawDigits.startsWith('08')) {
+      phoneVariant0 = rawDigits;
+      phoneVariant62 = '62' + rawDigits.slice(1);
+    } else if (rawDigits.startsWith('8')) {
+      phoneVariant0 = '0' + rawDigits;
+      phoneVariant62 = '62' + rawDigits;
+    }
+
+    // Search by phone variants or email
     const rs = await turso.execute({
       sql: `SELECT * FROM customers 
-            WHERE phone = ? OR phone = ? OR (email != "" AND LOWER(email) = LOWER(?))
+            WHERE phone = ? OR phone = ? OR phone = ? OR phone = ?
+               OR (email != "" AND LOWER(email) = LOWER(?))
             LIMIT 1;`,
-      args: [cleanId, numericPhone, cleanId],
+      args: [cleanId, rawDigits, phoneVariant0, phoneVariant62, cleanId.toLowerCase()],
     });
 
     if (rs.rows.length === 0) {

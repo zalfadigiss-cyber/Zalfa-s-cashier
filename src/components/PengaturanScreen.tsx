@@ -19,8 +19,9 @@ import {
   Server,
   Cloud,
 } from 'lucide-react';
-import { StoreSettings, AppUser } from '../types';
+import { StoreSettings, AppUser, Customer } from '../types';
 import { ConfirmationModal } from './ConfirmationModal';
+import { GoogleSheetsSyncCard } from './GoogleSheetsSyncCard';
 
 interface PengaturanScreenProps {
   settings: StoreSettings;
@@ -28,6 +29,7 @@ interface PengaturanScreenProps {
   currentUser?: AppUser | null;
   users?: AppUser[];
   onDeleteUser?: (userId: string) => void;
+  customers?: Customer[];
 }
 
 export const PengaturanScreen: React.FC<PengaturanScreenProps> = ({
@@ -36,6 +38,7 @@ export const PengaturanScreen: React.FC<PengaturanScreenProps> = ({
   currentUser,
   users = [],
   onDeleteUser,
+  customers = [],
 }) => {
   const [form, setForm] = useState<StoreSettings>(settings);
   const [isSaved, setIsSaved] = useState(false);
@@ -474,6 +477,12 @@ export const PengaturanScreen: React.FC<PengaturanScreenProps> = ({
             </div>
           </div>
         </div>
+
+        {/* Google Sheets Integration Card */}
+        <GoogleSheetsSyncCard
+          customers={customers}
+          storeName={form.storeName}
+        />
 
         {/* Save CTA */}
         <div className="flex items-center justify-between pt-2">
