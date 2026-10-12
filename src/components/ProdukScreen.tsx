@@ -13,9 +13,11 @@ import {
   X,
   Check,
   Package,
+  ScanBarcode,
 } from 'lucide-react';
 import { Category, Product } from '../types';
 import { formatCurrency } from '../utils/format';
+import { DynamicProductScannerModal } from './DynamicProductScannerModal';
 
 interface ProdukScreenProps {
   products: Product[];
@@ -35,6 +37,7 @@ export const ProdukScreen: React.FC<ProdukScreenProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
@@ -138,13 +141,26 @@ export const ProdukScreen: React.FC<ProdukScreenProps> = ({
           </p>
         </div>
 
-        <button
-          onClick={handleOpenAddModal}
-          className="bg-[#964407] hover:bg-[#773300] text-white px-4 py-2.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 shadow-sm active:scale-95 transition-all cursor-pointer self-start sm:self-auto"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Tambah Produk</span>
-        </button>
+        <div className="flex items-center gap-2.5 self-start sm:self-auto">
+          <button
+            id="btn-dynamic-product-scanner"
+            type="button"
+            onClick={() => setIsScannerOpen(true)}
+            className="bg-amber-100 hover:bg-amber-200 dark:bg-amber-950/70 dark:hover:bg-amber-900 border border-amber-300 dark:border-amber-800 text-amber-950 dark:text-amber-200 px-3.5 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow-xs active:scale-95 transition-all cursor-pointer"
+            title="Scan barcode produk untuk restock instan atau input produk baru"
+          >
+            <ScanBarcode className="w-4 h-4 text-[#964407] dark:text-amber-300" />
+            <span>Scan Dinamis / Barcode</span>
+          </button>
+
+          <button
+            onClick={handleOpenAddModal}
+            className="bg-[#964407] hover:bg-[#773300] text-white px-4 py-2.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 shadow-sm active:scale-95 transition-all cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Tambah Produk</span>
+          </button>
+        </div>
       </div>
 
       {/* Filter and Search Bar */}
@@ -527,6 +543,20 @@ export const ProdukScreen: React.FC<ProdukScreenProps> = ({
           </div>
         </div>
       )}
+
+      {/* Dynamic Barcode & Product Scanner Modal */}
+      <DynamicProductScannerModal
+        isOpen={isScannerOpen}
+        onClose={() => setIsScannerOpen(false)}
+        products={products}
+        categories={categories}
+        onAddProduct={(newProd) => {
+          onAddProduct(newProd);
+        }}
+        onUpdateProduct={(updatedProd) => {
+          onUpdateProduct(updatedProd);
+        }}
+      />
     </div>
   );
 };

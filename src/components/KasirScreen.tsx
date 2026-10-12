@@ -24,8 +24,14 @@ import {
   Clock,
   ArrowRight,
   Gift,
+  Copy,
+  Check,
+  Bluetooth,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { QRCodeSVG } from 'qrcode.react';
+import { generateDynamicQRIS } from '../utils/qris';
+import { globalPrinter } from '../services/printerService';
 import {
   Category,
   Product,
@@ -130,6 +136,7 @@ export const KasirScreen: React.FC<KasirScreenProps> = ({
   // Barcode quick scan simulator
   const [isBarcodeSimOpen, setIsBarcodeSimOpen] = useState(false);
   const [barcodeInput, setBarcodeInput] = useState('');
+  const [copiedQrisString, setCopiedQrisString] = useState(false);
 
   // Selected customer object
   const activeCustomer = useMemo(() => {
@@ -1200,34 +1207,112 @@ export const KasirScreen: React.FC<KasirScreenProps> = ({
                 </div>
               )}
 
-              {paymentMethod === 'qris' && (
-                <div className="p-5 bg-[#f8ece1]/40 rounded-2xl border border-[#dbc1b5]/50 flex flex-col items-center text-center space-y-3">
-                  <div className="w-40 h-40 bg-white p-3 rounded-xl border border-[#dbc1b5] shadow-xs flex items-center justify-center">
-                    {/* Visual QR Simulator */}
-                    <div className="w-full h-full border-2 border-black p-1 flex flex-col justify-between">
-                      <div className="flex justify-between">
-                        <div className="w-8 h-8 bg-black border-2 border-white" />
-                        <div className="w-8 h-8 bg-black border-2 border-white" />
+              {paymentMethod === 'qris' && (() => {
+                const dynamicQris = generateDynamicQRIS(totalAmount, 'TRX-' + Date.now().toString().slice(-6));
+                return (
+                  <div className="bg-white rounded-2xl border-2 border-red-500/20 shadow-sm p-4 text-center space-y-3">
+                    {/* Header QRIS & GPN */}
+                    <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+                      <div className="flex items-center gap-1.5">
+                        <div className="px-1.5 py-0.5 bg-black text-white text-[10px] font-black rounded-xs tracking-tighter">
+                          QRIS
+                        </div>
+                        <div className="text-left leading-none">
+                          <div className="text-[8px] font-extrabold text-gray-800">QR Code Standar</div>
+                          <div className="text-[7px] font-medium text-gray-500">Pembayaran Nasional</div>
+                        </div>
                       </div>
-                      <div className="text-[10px] font-extrabold tracking-widest text-center text-gray-800">
-                        QRIS STANDAR
-                      </div>
-                      <div className="flex justify-between items-end">
-                        <div className="w-8 h-8 bg-black border-2 border-white" />
-                        <div className="text-[9px] font-mono font-bold">KASIRKU</div>
+
+                      <div className="flex items-center gap-1 px-1.5 py-0.5 rounded border border-red-200 bg-red-50 text-red-600">
+                        <span className="text-[9px] font-black tracking-wider">GPN</span>
                       </div>
                     </div>
+
+                    {/* Merchant Identification */}
+                    <div>
+                      <h4 className="text-base font-extrabold text-gray-900 font-serif-header">
+                        Anugerah Store
+                      </h4>
+                      <p className="text-[11px] font-mono font-semibold text-gray-600">
+                        NMID : ID1025371471182
+                      </p>
+                      <span className="inline-block mt-0.5 px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 text-[9px] font-bold">
+                        A01
+                      </span>
+                    </div>
+
+                    {/* Dynamic QR SVG */}
+                    <div className="flex justify-center py-1">
+                      <div className="p-2.5 bg-white rounded-xl border-2 border-gray-900 shadow-2xs inline-block">
+                        <QRCodeSVG
+                          value={dynamicQris.qrisString}
+                          size={170}
+                          level="M"
+                          includeMargin={true}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Dynamic Amount Banner */}
+                    <div className="py-2 px-3 bg-emerald-50 rounded-xl border border-emerald-200 text-center">
+                      <span className="text-[9px] font-bold text-emerald-700 uppercase tracking-wider block">
+                        Total Tagihan Dinamis (Otomatis Terkunci):
+                      </span>
+                      <span className="text-lg font-price font-extrabold text-emerald-900">
+                        {formatCurrency(totalAmount)}
+                      </span>
+                      <span className="text-[10px] text-emerald-600 block mt-0.5">
+                        Mendukung BCA, Mandiri, BRI, BNI, GoPay, OVO, Dana, ShopeePay
+                      </span>
+                    </div>
+
+                    {/* Actions: Copy & Print */}
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(dynamicQris.qrisString);
+                          setCopiedQrisString(true);
+                          setTimeout(() => setCopiedQrisString(false), 2000);
+                        }}
+                        className="flex-1 py-1.5 px-2 rounded-lg border border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-700 text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                      >
+                        {copiedQrisString ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5 text-gray-500" />}
+                        <span>{copiedQrisString ? 'Tersalin' : 'Salin Kode QRIS'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const text = `
+================================
+         ANUGERAH STORE         
+   NMID: ID1025371471182        
+   TERMINAL: A01                
+--------------------------------
+Total   : ${formatCurrency(totalAmount)}
+Metode  : QRIS DINAMIS ASPI     
+Silakan scan QRIS di layar kasir
+================================
+`;
+                          globalPrinter.printReceipt(text);
+                        }}
+                        className="flex-1 py-1.5 px-2 rounded-lg border border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-700 text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                        title="Cetak struk informasi QRIS ke printer mini"
+                      >
+                        <Printer className="w-3.5 h-3.5 text-[#964407]" />
+                        <span>Cetak ke Mini Printer</span>
+                      </button>
+                    </div>
+
+                    {/* Footer text from photo */}
+                    <div className="pt-2 border-t border-gray-100 text-[9px] text-gray-500 flex justify-between">
+                      <span>SATU QRIS UNTUK SEMUA</span>
+                      <span>Dicetak: 93600915</span>
+                    </div>
                   </div>
-                  <div>
-                    <span className="text-xs font-bold text-[#201b14] block">
-                      Pindai dengan GoPay, OVO, Dana, BCA, Mandiri
-                    </span>
-                    <span className="text-[11px] text-[#645d57]">
-                      Nominal otomatis tertera: {formatCurrency(totalAmount)}
-                    </span>
-                  </div>
-                </div>
-              )}
+                );
+              })()}
 
               {paymentMethod === 'debit' && (
                 <div className="p-5 bg-[#f8ece1]/40 rounded-2xl border border-[#dbc1b5]/50 text-center space-y-2 text-xs text-[#554339]">

@@ -21,9 +21,15 @@ import {
   Server,
   Database,
   ArrowRight,
+  CreditCard,
+  Printer,
+  Bluetooth,
+  SlidersHorizontal,
 } from 'lucide-react';
-import { AppUser, UserRole } from '../types';
+import { AppUser, UserRole, Transaction } from '../types';
 import { ConfirmationModal } from './ConfirmationModal';
+import { SuperAdminRealtimePayments } from './SuperAdminRealtimePayments';
+import { globalPrinter } from '../services/printerService';
 import { api } from '../services/api';
 
 interface SuperAdminScreenProps {
@@ -33,6 +39,8 @@ interface SuperAdminScreenProps {
   onUpdateUser: (user: AppUser) => void;
   onDeleteUser: (userId: string) => void;
   onRefreshUsers?: () => void;
+  transactions?: Transaction[];
+  onOpenReceipt?: (transaction: Transaction) => void;
 }
 
 export const SuperAdminScreen: React.FC<SuperAdminScreenProps> = ({
@@ -42,7 +50,12 @@ export const SuperAdminScreen: React.FC<SuperAdminScreenProps> = ({
   onUpdateUser,
   onDeleteUser,
   onRefreshUsers,
+  transactions = [],
+  onOpenReceipt,
 }) => {
+  // Navigation Tabs in Super Admin Dashboard
+  const [activeAdminTab, setActiveAdminTab] = useState<'users' | 'payments' | 'printer'>('users');
+
   // Search & Filter
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<'all' | 'super_admin' | 'admin' | 'staff'>('all');
@@ -403,7 +416,178 @@ export const SuperAdminScreen: React.FC<SuperAdminScreenProps> = ({
         </div>
       )}
 
-      {/* Metric Stat Cards */}
+      {/* Super Admin Top Tabs Navigation */}
+      <div className="flex border-b border-[#dbc1b5]/60 dark:border-[#423126] gap-2 pb-1 overflow-x-auto">
+        <button
+          id="tab-superadmin-users"
+          type="button"
+          onClick={() => setActiveAdminTab('users')}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer whitespace-nowrap ${
+            activeAdminTab === 'users'
+              ? 'bg-[#964407] text-white shadow-xs'
+              : 'text-[#554339] dark:text-[#cbb8ad] hover:bg-[#f8ece1] dark:hover:bg-[#231a15]'
+          }`}
+        >
+          <Users className="w-4 h-4" />
+          <span>Kelola Pengguna &amp; Kata Sandi</span>
+          <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-white/20">
+            {users.length}
+          </span>
+        </button>
+
+        <button
+          id="tab-superadmin-payments"
+          type="button"
+          onClick={() => setActiveAdminTab('payments')}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer whitespace-nowrap ${
+            activeAdminTab === 'payments'
+              ? 'bg-[#964407] text-white shadow-xs'
+              : 'text-[#554339] dark:text-[#cbb8ad] hover:bg-[#f8ece1] dark:hover:bg-[#231a15]'
+          }`}
+        >
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          <CreditCard className="w-4 h-4" />
+          <span>Riwayat Pembayaran Real-Time</span>
+          <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-amber-300 text-amber-950 font-black">
+            LIVE
+          </span>
+        </button>
+
+        <button
+          id="tab-superadmin-printer"
+          type="button"
+          onClick={() => setActiveAdminTab('printer')}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer whitespace-nowrap ${
+            activeAdminTab === 'printer'
+              ? 'bg-[#964407] text-white shadow-xs'
+              : 'text-[#554339] dark:text-[#cbb8ad] hover:bg-[#f8ece1] dark:hover:bg-[#231a15]'
+          }`}
+        >
+          <Printer className="w-4 h-4" />
+          <span>Koneksi Printer Bluetooth &amp; Thermal</span>
+        </button>
+      </div>
+
+      {/* TAB 1: REAL-TIME PAYMENT HISTORY DASHBOARD */}
+      {activeAdminTab === 'payments' && (
+        <SuperAdminRealtimePayments
+          initialTransactions={transactions}
+          onOpenReceipt={onOpenReceipt}
+        />
+      )}
+
+      {/* TAB 2: PRINTER BLUETOOTH & MINI THERMAL SETTINGS */}
+      {activeAdminTab === 'printer' && (
+        <div className="p-6 bg-white dark:bg-[#1e1713] rounded-2xl border border-[#dbc1b5]/50 dark:border-[#3d2f25] shadow-xs space-y-5 animate-in fade-in duration-200">
+          <div className="flex items-center justify-between pb-4 border-b border-[#dbc1b5]/30">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#964407] text-white flex items-center justify-center font-bold">
+                <Printer className="w-5 h-5 text-amber-300" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-[#201b14] dark:text-[#f7ece4] font-serif-header">
+                  Pusat Deteksi &amp; Koneksi Printer Mini Bluetooth
+                </h3>
+                <p className="text-xs text-[#645d57] dark:text-[#cbb8ad]">
+                  Kelola koneksi printer kasir mini thermal 58mm / 80mm secara global untuk seluruh transaksi.
+                </p>
+              </div>
+            </div>
+
+            <span
+              className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 ${
+                globalPrinter.getStatus() === 'connected'
+                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200'
+                  : 'bg-stone-100 text-stone-600 dark:bg-stone-800 dark:text-stone-300'
+              }`}
+            >
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  globalPrinter.getStatus() === 'connected'
+                    ? 'bg-emerald-500 animate-pulse'
+                    : 'bg-stone-400'
+                }`}
+              />
+              <span>
+                {globalPrinter.getStatus() === 'connected' ? 'Terhubung' : 'Terputus'}
+              </span>
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="p-4 rounded-xl bg-[#fff8f4] dark:bg-[#231a15] border border-[#dbc1b5]/40 space-y-3">
+              <span className="text-xs font-bold text-[#554339] dark:text-[#cbb8ad] block">
+                Printer Bluetooth Nirkabel (Wireless)
+              </span>
+              <p className="text-xs text-[#887368]">
+                Mendukung printer thermal portabel Bluetooth (RPP02N, POS-58, GOOJPRT, MPT-II, Zjiang).
+              </p>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await globalPrinter.connectBluetooth('58mm');
+                    showAlert('success', 'Printer Bluetooth berhasil terhubung!');
+                  } catch (e: any) {
+                    showAlert('error', e.message || 'Gagal menyambung printer Bluetooth');
+                  }
+                }}
+                className="w-full py-2.5 px-4 bg-[#964407] hover:bg-[#7e3905] text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+              >
+                <Bluetooth className="w-4 h-4 text-amber-300" />
+                <span>Pindai &amp; Sambungkan Printer Bluetooth</span>
+              </button>
+            </div>
+
+            <div className="p-4 rounded-xl bg-[#fff8f4] dark:bg-[#231a15] border border-[#dbc1b5]/40 space-y-3">
+              <span className="text-xs font-bold text-[#554339] dark:text-[#cbb8ad] block">
+                Printer Driver Sistem / Kabel USB
+              </span>
+              <p className="text-xs text-[#887368]">
+                Gunakan printer kasir thermal yang terhubung lewat kabel USB atau printer jaringan lokal.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  globalPrinter.connectSystemPrinter('Printer Mini Thermal USB 58mm', '58mm');
+                  showAlert('success', 'Driver printer mini thermal aktif!');
+                }}
+                className="w-full py-2.5 px-4 border border-[#dbc1b5] dark:border-[#423126] hover:bg-[#ece0d6] text-[#554339] dark:text-[#f7ece4] rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Printer className="w-4 h-4 text-[#964407]" />
+                <span>Aktifkan Driver Printer Sistem (USB)</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="pt-2 flex justify-end">
+            <button
+              type="button"
+              onClick={async () => {
+                const sample = `
+================================
+         ANUGERAH STORE         
+       NMID: ID1025371471182    
+--------------------------------
+UJI COBA CETAK STRUK THERMAL OK!
+================================
+`;
+                await globalPrinter.printReceipt(sample);
+                showAlert('success', 'Struk pengujian berhasil dikirim ke printer!');
+              }}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 cursor-pointer transition-colors shadow-xs"
+            >
+              <Printer className="w-4 h-4" />
+              <span>Kirim Test Cetak ke Printer</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 3: USER & SUPER ADMIN MANAGEMENT (Default) */}
+      {activeAdminTab === 'users' && (
+        <>
+          {/* Metric Stat Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
         <div className="p-4 bg-white rounded-2xl border border-[#dbc1b5]/50 shadow-xs flex items-center justify-between">
           <div>
@@ -774,6 +958,8 @@ export const SuperAdminScreen: React.FC<SuperAdminScreenProps> = ({
           </table>
         </div>
       </div>
+      </>
+    )}
 
       {/* ========================================================= */}
       {/* MODAL 1: TAMBAH SUPER ADMIN / AKUN BARU                   */}

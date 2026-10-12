@@ -283,6 +283,61 @@ app.post('/api/transactions', async (req: Request, res: Response) => {
       }
     }
 
+    // 3. Auto Insert or Update Customer Points & Spend in Turso
+    if (trx.customerPhone || trx.customerName) {
+      try {
+        const cleanTrxPhone = trx.customerPhone ? String(trx.customerPhone).trim() : '';
+        const cleanTrxName = trx.customerName ? String(trx.customerName).trim() : '';
+
+        const custRs = await turso.execute({
+          sql: 'SELECT id, points, total_spent, transactions_count, tier FROM customers WHERE (phone != "" AND phone = ?) OR (name != "" AND LOWER(name) = LOWER(?)) LIMIT 1;',
+          args: [cleanTrxPhone, cleanTrxName.toLowerCase()],
+        });
+
+        if (custRs.rows.length > 0) {
+          const row = custRs.rows[0];
+          const earned = Number(trx.pointsEarned || Math.floor(trx.total / 10000));
+          const used = Number(trx.pointsUsed || 0);
+          const newPoints = Math.max(0, Number(row.points || 0) + earned - used);
+          const newSpent = Number(row.total_spent || 0) + Number(trx.total);
+          const newCount = Number(row.transactions_count || 0) + 1;
+
+          let newTier = String(row.tier || 'Reguler');
+          if (newSpent > 2500000) newTier = 'VIP';
+          else if (newSpent > 1000000) newTier = 'Gold';
+          else if (newSpent > 300000) newTier = 'Silver';
+
+          await turso.execute({
+            sql: 'UPDATE customers SET points = ?, total_spent = ?, transactions_count = ?, tier = ? WHERE id = ?;',
+            args: [newPoints, newSpent, newCount, newTier, String(row.id)],
+          });
+        } else if (cleanTrxPhone.length >= 8 || cleanTrxName.length >= 2) {
+          // Auto insert new customer from transaction!
+          const newCustId = 'cust-trx-' + Date.now();
+          const earned = Number(trx.pointsEarned || Math.floor(trx.total / 10000));
+          await turso.execute({
+            sql: `INSERT INTO customers (id, name, phone, email, tier, points, total_spent, transactions_count, password, favorite_category, created_at)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+            args: [
+              newCustId,
+              cleanTrxName || ('Pelanggan ' + cleanTrxPhone.slice(-4)),
+              cleanTrxPhone,
+              '',
+              'Reguler',
+              earned,
+              trx.total,
+              1,
+              '123456',
+              'Coffee',
+              new Date().toISOString(),
+            ],
+          });
+        }
+      } catch (custErr) {
+        console.warn('[AutoInsertCustomer Warning]', custErr);
+      }
+    }
+
     res.status(201).json({ success: true, id: trxId, trxNumber: trx.trxNumber });
   } catch (err: any) {
     res.status(500).json({ error: err?.message });
@@ -790,6 +845,145 @@ app.post('/api/members/signup', async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error('[Member SignUp Error]', err);
     res.status(500).json({ error: err?.message || 'Gagal mendaftarkan member ke database.' });
+  }
+});
+
+// Google Sign-Up & Sign-In with Auto-Insert
+app.post('/api/members/google-auth', async (req: Request, res: Response) => {
+  try {
+    const { email, name, avatarUrl, phone, favoriteCategory } = req.body;
+
+    if (!email && !name) {
+      return res.status(400).json({ error: 'Data akun Google (email/nama) tidak lengkap.' });
+    }
+
+    const cleanEmail = email ? String(email).trim().toLowerCase() : '';
+    const cleanName = name ? String(name).trim() : (cleanEmail ? cleanEmail.split('@')[0] : 'Member Google');
+
+    // 1. Check if member already exists by email
+    let existingRow: any = null;
+    if (cleanEmail) {
+      const existing = await turso.execute({
+        sql: 'SELECT * FROM customers WHERE LOWER(email) = LOWER(?) LIMIT 1;',
+        args: [cleanEmail],
+      });
+      if (existing.rows.length > 0) {
+        existingRow = existing.rows[0];
+      }
+    }
+
+    // Check by phone if provided
+    if (!existingRow && phone) {
+      const rawDigits = String(phone).trim().replace(/[^0-9]/g, '');
+      if (rawDigits.length >= 8) {
+        const existingByPhone = await turso.execute({
+          sql: 'SELECT * FROM customers WHERE phone = ? OR phone = ? OR phone = ? LIMIT 1;',
+          args: [phone, rawDigits, '0' + rawDigits.replace(/^62/, '')],
+        });
+        if (existingByPhone.rows.length > 0) {
+          existingRow = existingByPhone.rows[0];
+        }
+      }
+    }
+
+    if (existingRow) {
+      // Existing Member Login
+      const member: Customer = {
+        id: String(existingRow.id),
+        name: String(existingRow.name),
+        phone: String(existingRow.phone || ''),
+        email: existingRow.email ? String(existingRow.email) : (cleanEmail || undefined),
+        tier: existingRow.tier as any,
+        points: Number(existingRow.points || 0),
+        totalSpent: Number(existingRow.total_spent || 0),
+        transactionsCount: Number(existingRow.transactions_count || 0),
+        createdAt: existingRow.created_at ? String(existingRow.created_at) : undefined,
+        favoriteCategory: String(existingRow.favorite_category || 'Coffee'),
+      };
+
+      // Retrieve recent transactions for existing member
+      let recentTransactions: any[] = [];
+      try {
+        const trxRs = await turso.execute({
+          sql: `SELECT id, trx_number, date, time, total, points_earned, points_used, payment_method, items_json
+                FROM transactions 
+                WHERE customer_phone = ? OR (customer_name != "" AND LOWER(customer_name) = LOWER(?))
+                ORDER BY date DESC, time DESC LIMIT 10;`,
+          args: [member.phone, member.name],
+        });
+        recentTransactions = trxRs.rows.map((t: any) => ({
+          id: String(t.id),
+          trxNumber: String(t.trx_number),
+          date: String(t.date),
+          time: String(t.time),
+          total: Number(t.total),
+          pointsEarned: Number(t.points_earned || 0),
+          pointsUsed: Number(t.points_used || 0),
+          paymentMethod: String(t.payment_method),
+          items: JSON.parse(String(t.items_json || '[]')),
+        }));
+      } catch {}
+
+      return res.json({
+        success: true,
+        isNew: false,
+        member,
+        recentTransactions,
+        message: `Selamat datang kembali, ${member.name}! Akun Google Anda terhubung.`,
+      });
+    }
+
+    // 2. Auto-Insert New Member from Google Sign-Up
+    const newId = 'cust-google-' + Date.now();
+    const generatedPhone = phone && String(phone).trim().length >= 8
+      ? String(phone).trim()
+      : '08' + Math.floor(1000000000 + Math.random() * 9000000000).toString();
+    const welcomePoints = 50; // 50 Welcome bonus points
+    const defaultTier = 'Reguler';
+    const chosenFavCat = favoriteCategory || 'Coffee';
+    const createdAt = new Date().toISOString();
+
+    await turso.execute({
+      sql: `INSERT INTO customers (id, name, phone, email, tier, points, total_spent, transactions_count, password, favorite_category, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+      args: [
+        newId,
+        cleanName,
+        generatedPhone,
+        cleanEmail,
+        defaultTier,
+        welcomePoints,
+        0,
+        0,
+        'google-auth',
+        chosenFavCat,
+        createdAt,
+      ],
+    });
+
+    const newMember: Customer = {
+      id: newId,
+      name: cleanName,
+      phone: generatedPhone,
+      email: cleanEmail || undefined,
+      tier: defaultTier,
+      points: welcomePoints,
+      totalSpent: 0,
+      transactionsCount: 0,
+      createdAt,
+      favoriteCategory: chosenFavCat,
+    };
+
+    res.status(201).json({
+      success: true,
+      isNew: true,
+      member: newMember,
+      recentTransactions: [],
+      message: 'Pendaftaran otomatis dengan Akun Google berhasil! Bonus 50 Poin Selamat Datang telah aktif.',
+    });
+  } catch (err: any) {
+    console.error('[Google Member Auth Error]', err);
+    res.status(500).json({ error: err?.message || 'Gagal memproses pendaftaran Akun Google.' });
   }
 });
 

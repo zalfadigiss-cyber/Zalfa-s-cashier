@@ -42,10 +42,31 @@ import { ConfirmationModal } from './components/ConfirmationModal';
 import { FnBInventoryScannerModule, FnBCartItem } from './components/FnBInventoryScannerModule';
 import { MemberLandingPage } from './components/MemberLandingPage';
 import { SuperAdminScreen } from './components/SuperAdminScreen';
+import { PrinterConnectModal } from './components/PrinterConnectModal';
 import { getIndonesianDate, getIndonesianTime } from './utils/format';
+import { getInitialTheme, applyTheme, ThemeSetting, setupSystemThemeListener } from './utils/theme';
 import { api } from './services/api';
 
 export default function App() {
+  // Theme Mode: 'light' | 'dark' | 'system'
+  const [theme, setTheme] = useState<ThemeSetting>(() => getInitialTheme());
+
+  useEffect(() => {
+    applyTheme(theme);
+    const cleanup = setupSystemThemeListener(() => {
+      applyTheme('system');
+    });
+    return cleanup;
+  }, [theme]);
+
+  const handleToggleTheme = () => {
+    setTheme((prev) => {
+      const next: ThemeSetting = prev === 'light' ? 'dark' : prev === 'dark' ? 'system' : 'light';
+      applyTheme(next);
+      return next;
+    });
+  };
+
   // Top-level View Mode: 'landing' for Member Landing Page, 'pos' for Point of Sale & Staff
   const [viewMode, setViewMode] = useState<'landing' | 'pos'>('landing');
 
@@ -53,6 +74,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
   const [isOpenMobile, setIsOpenMobile] = useState<boolean>(false);
   const [isHelpOpen, setIsHelpOpen] = useState<boolean>(false);
+  const [isPrinterModalOpen, setIsPrinterModalOpen] = useState<boolean>(false);
   const [isShiftModalOpen, setIsShiftModalOpen] = useState<boolean>(false);
   const [isHotkeysOpen, setIsHotkeysOpen] = useState<boolean>(false);
   const [isFnBScannerOpen, setIsFnBScannerOpen] = useState<boolean>(false);
@@ -596,6 +618,8 @@ export default function App() {
         settings={settings}
         customers={customers}
         vouchers={vouchers}
+        theme={theme}
+        onToggleTheme={handleToggleTheme}
         onOpenPos={() => setViewMode('pos')}
         onCustomerRegistered={(newCust) => {
           setCustomers((prev) => [newCust, ...prev.filter((c) => c.id !== newCust.id)]);
@@ -612,6 +636,8 @@ export default function App() {
         onRegister={handleRegister}
         users={users}
         onOpenMemberPortal={() => setViewMode('landing')}
+        theme={theme}
+        onToggleTheme={handleToggleTheme}
       />
     );
   }
@@ -634,6 +660,8 @@ export default function App() {
         currentUser={currentUser}
         onLogout={() => setIsLogoutConfirmOpen(true)}
         onOpenHelp={() => setIsHelpOpen(true)}
+        theme={theme}
+        onToggleTheme={handleToggleTheme}
       />
 
       {/* Main Content Area (offset by sidebar width on md+) */}
@@ -657,6 +685,9 @@ export default function App() {
           onOpenFnBScanner={() => setIsFnBScannerOpen(true)}
           onOpenMemberPortal={() => setViewMode('landing')}
           onOpenSuperAdmin={() => setActiveTab('superadmin')}
+          theme={theme}
+          onToggleTheme={handleToggleTheme}
+          onOpenPrinterModal={() => setIsPrinterModalOpen(true)}
         />
 
         {/* View Routing */}
@@ -742,6 +773,8 @@ export default function App() {
               customers={customers}
               onDeleteUser={handleDeleteUser}
               onOpenSuperAdminMenu={() => setActiveTab('superadmin')}
+              theme={theme}
+              onToggleTheme={handleToggleTheme}
               onSaveSettings={(newSettings) => {
                 setSettings(newSettings);
                 api.saveSettings(newSettings);
@@ -753,6 +786,8 @@ export default function App() {
             <SuperAdminScreen
               currentUser={currentUser}
               users={users}
+              transactions={transactions}
+              onOpenReceipt={handleOpenReceipt}
               onAddUser={handleRegister}
               onUpdateUser={handleUpdateUser}
               onDeleteUser={handleDeleteUser}
@@ -771,6 +806,8 @@ export default function App() {
                 settings={settings}
                 customers={customers}
                 vouchers={vouchers}
+                theme={theme}
+                onToggleTheme={handleToggleTheme}
                 onOpenPos={() => setActiveTab('kasir')}
                 onCustomerRegistered={(newCust) => {
                   setCustomers((prev) => [newCust, ...prev.filter((c) => c.id !== newCust.id)]);
@@ -783,6 +820,12 @@ export default function App() {
 
       {/* Global Help Modal */}
       <BantuanModal isOpen={isHelpOpen} onClose={() => setIsHelpOpen(false)} />
+
+      {/* Global Mini / Bluetooth Thermal Printer Modal */}
+      <PrinterConnectModal
+        isOpen={isPrinterModalOpen}
+        onClose={() => setIsPrinterModalOpen(false)}
+      />
 
       {/* Shift & Cash Drawer Modal */}
       <ShiftModal

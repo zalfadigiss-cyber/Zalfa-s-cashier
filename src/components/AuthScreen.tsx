@@ -18,6 +18,8 @@ import {
   Mail,
   Users,
   Crown,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import { AppUser, UserRole } from '../types';
 
@@ -26,6 +28,8 @@ interface AuthScreenProps {
   onRegister: (newUser: AppUser) => void;
   users: AppUser[];
   onOpenMemberPortal?: () => void;
+  theme?: 'light' | 'dark';
+  onToggleTheme?: () => void;
 }
 
 export const AuthScreen: React.FC<AuthScreenProps> = ({
@@ -33,6 +37,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   onRegister,
   users,
   onOpenMemberPortal,
+  theme = 'light',
+  onToggleTheme,
 }) => {
   const [activeTab, setActiveTab] = useState<'login' | 'register'>('login');
 
@@ -166,7 +172,32 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   };
 
   return (
-    <div id="auth-screen-root" className="min-h-screen bg-[#fff8f4] flex flex-col justify-center py-6 sm:py-12 px-4 sm:px-6 lg:px-8">
+    <div id="auth-screen-root" className="min-h-screen bg-[#fff8f4] flex flex-col justify-center py-6 sm:py-12 px-4 sm:px-6 lg:px-8 relative">
+      {/* Floating Theme Toggle */}
+      {onToggleTheme && (
+        <div className="absolute top-4 right-4 z-20">
+          <button
+            id="auth-theme-toggle"
+            type="button"
+            onClick={onToggleTheme}
+            className="p-2.5 rounded-xl bg-white/80 dark:bg-[#1e1713]/80 border border-[#dbc1b5]/60 hover:bg-white text-[#554339] shadow-xs transition-all cursor-pointer flex items-center gap-2"
+            title={theme === 'dark' ? 'Beralih ke Mode Terang' : 'Beralih ke Mode Gelap'}
+          >
+            {theme === 'dark' ? (
+              <>
+                <Sun className="w-4 h-4 text-amber-400" />
+                <span className="text-xs font-bold text-amber-200 hidden sm:inline">Mode Terang</span>
+              </>
+            ) : (
+              <>
+                <Moon className="w-4 h-4 text-[#554339]" />
+                <span className="text-xs font-bold text-[#554339] hidden sm:inline">Mode Gelap</span>
+              </>
+            )}
+          </button>
+        </div>
+      )}
+
       {/* Container Box */}
       <div className="max-w-4xl w-full mx-auto bg-white rounded-2xl shadow-sm border border-[#dbc1b5]/60 overflow-hidden grid grid-cols-1 lg:grid-cols-12">
         {/* Left Terminal Identification Column */}

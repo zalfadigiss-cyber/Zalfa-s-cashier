@@ -16,6 +16,9 @@ import {
   ShieldCheck,
   Crown,
   KeyRound,
+  Sun,
+  Moon,
+  Laptop,
 } from 'lucide-react';
 import { TabType, StoreSettings, AppUser } from '../types';
 
@@ -28,6 +31,8 @@ interface SidebarProps {
   currentUser?: AppUser | null;
   onLogout?: () => void;
   onOpenHelp: () => void;
+  theme?: 'light' | 'dark' | 'system';
+  onToggleTheme?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -39,6 +44,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   currentUser,
   onLogout,
   onOpenHelp,
+  theme = 'light',
+  onToggleTheme,
 }) => {
   const isSuperAdmin = currentUser?.role === 'super_admin';
 
@@ -196,6 +203,39 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
 
           <div className="flex flex-col gap-1 mt-1">
+            {onToggleTheme && (
+              <button
+                id="sidebar-theme-toggle"
+                type="button"
+                onClick={onToggleTheme}
+                className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-[#554339] dark:text-[#f7ece4] hover:bg-[#ece0d6] dark:hover:bg-[#2e231c] transition-colors text-left cursor-pointer"
+                title={
+                  theme === 'dark'
+                    ? 'Tema Aktif: Gelap (Klik untuk ganti ke Sistem)'
+                    : theme === 'system'
+                    ? 'Tema Aktif: Ikuti Sistem (Klik untuk ganti ke Terang)'
+                    : 'Tema Aktif: Terang (Klik untuk ganti ke Gelap)'
+                }
+              >
+                {theme === 'dark' ? (
+                  <>
+                    <Moon className="w-4 h-4 text-amber-400 shrink-0" />
+                    <span>Mode Gelap</span>
+                  </>
+                ) : theme === 'system' ? (
+                  <>
+                    <Laptop className="w-4 h-4 text-[#964407] dark:text-[#ffbe99] shrink-0" />
+                    <span>Ikuti Sistem</span>
+                  </>
+                ) : (
+                  <>
+                    <Sun className="w-4 h-4 text-amber-500 shrink-0" />
+                    <span>Mode Terang</span>
+                  </>
+                )}
+              </button>
+            )}
+
             <button
               onClick={onOpenHelp}
               className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-[#645d57] hover:bg-[#ece0d6] transition-colors text-left"

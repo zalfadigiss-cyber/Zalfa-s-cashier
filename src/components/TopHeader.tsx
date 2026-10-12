@@ -17,8 +17,13 @@ import {
   ScanBarcode,
   Crown,
   KeyRound,
+  Sun,
+  Moon,
+  Laptop,
+  Printer,
 } from 'lucide-react';
 import { StoreSettings, Branch, ShiftSession, AppUser } from '../types';
+import { globalPrinter } from '../services/printerService';
 
 interface TopHeaderProps {
   onOpenMobileMenu: () => void;
@@ -39,6 +44,9 @@ interface TopHeaderProps {
   onOpenFnBScanner?: () => void;
   onOpenMemberPortal?: () => void;
   onOpenSuperAdmin?: () => void;
+  theme?: 'light' | 'dark' | 'system';
+  onToggleTheme?: () => void;
+  onOpenPrinterModal?: () => void;
 }
 
 export const TopHeader: React.FC<TopHeaderProps> = ({
@@ -60,6 +68,9 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   onOpenFnBScanner,
   onOpenMemberPortal,
   onOpenSuperAdmin,
+  theme = 'light',
+  onToggleTheme,
+  onOpenPrinterModal,
 }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
@@ -244,6 +255,51 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             </div>
           )}
         </div>
+
+        {/* Theme Toggle (Dark / Light / System) */}
+        {onToggleTheme && (
+          <button
+            id="topheader-theme-toggle"
+            type="button"
+            onClick={onToggleTheme}
+            className="p-2 text-[#554339] dark:text-[#f7ece4] hover:bg-[#ece0d6] dark:hover:bg-[#2e231c] rounded-full transition-colors active:scale-95 cursor-pointer"
+            title={
+              theme === 'dark'
+                ? 'Tema: Gelap (Klik untuk ganti ke Mode Sistem)'
+                : theme === 'system'
+                ? 'Tema: Ikuti Sistem OS (Klik untuk ganti ke Mode Terang)'
+                : 'Tema: Terang (Klik untuk ganti ke Mode Gelap)'
+            }
+          >
+            {theme === 'dark' ? (
+              <Moon className="w-5 h-5 text-amber-400" />
+            ) : theme === 'system' ? (
+              <Laptop className="w-5 h-5 text-[#964407] dark:text-[#ffbe99]" />
+            ) : (
+              <Sun className="w-5 h-5 text-amber-500" />
+            )}
+          </button>
+        )}
+
+        {/* Global Mini / Bluetooth Printer Detection */}
+        {onOpenPrinterModal && (
+          <button
+            id="topheader-printer-toggle"
+            type="button"
+            onClick={onOpenPrinterModal}
+            className="relative p-2 text-[#554339] dark:text-[#f7ece4] hover:bg-[#ece0d6] dark:hover:bg-[#2e231c] rounded-full transition-colors active:scale-95 cursor-pointer"
+            title="Deteksi & Hubungkan Printer Bluetooth / Mini Thermal"
+          >
+            <Printer className="w-5 h-5 text-[#964407] dark:text-[#ffbe99]" />
+            <span
+              className={`absolute bottom-1 right-1 w-2.5 h-2.5 rounded-full border-2 border-white dark:border-[#1e1713] ${
+                globalPrinter.getStatus() === 'connected'
+                  ? 'bg-emerald-500 animate-pulse'
+                  : 'bg-stone-300'
+              }`}
+            />
+          </button>
+        )}
 
         {/* Help */}
         <button

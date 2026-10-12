@@ -386,6 +386,36 @@ export const api = {
     }
   },
 
+  async memberGoogleAuth(payload: {
+    email?: string;
+    name?: string;
+    avatarUrl?: string;
+    phone?: string;
+    favoriteCategory?: string;
+  }): Promise<{
+    success: boolean;
+    isNew?: boolean;
+    member?: Customer;
+    recentTransactions?: any[];
+    message?: string;
+    error?: string;
+  }> {
+    try {
+      const res = await fetch('/api/members/google-auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const result = await res.json();
+      if (!res.ok) {
+        return { success: false, error: result.error || 'Gagal login/daftar dengan Google.' };
+      }
+      return result;
+    } catch {
+      return { success: false, error: 'Gagal terhubung ke database server.' };
+    }
+  },
+
   async getMemberTransactions(memberId: string): Promise<any[]> {
     try {
       const res = await fetch(`/api/members/${encodeURIComponent(memberId)}/transactions`);

@@ -23,10 +23,14 @@ import {
   Copy,
   Check,
   ExternalLink,
+  Sun,
+  Moon,
+  Laptop,
 } from 'lucide-react';
 import { StoreSettings, AppUser, Customer } from '../types';
 import { ConfirmationModal } from './ConfirmationModal';
 import { GoogleSheetsSyncCard } from './GoogleSheetsSyncCard';
+import { ThemeSetting } from '../utils/theme';
 
 interface PengaturanScreenProps {
   settings: StoreSettings;
@@ -36,6 +40,9 @@ interface PengaturanScreenProps {
   onDeleteUser?: (userId: string) => void;
   customers?: Customer[];
   onOpenSuperAdminMenu?: () => void;
+  theme?: ThemeSetting;
+  onSelectTheme?: (newTheme: ThemeSetting) => void;
+  onToggleTheme?: () => void;
 }
 
 export const PengaturanScreen: React.FC<PengaturanScreenProps> = ({
@@ -46,6 +53,9 @@ export const PengaturanScreen: React.FC<PengaturanScreenProps> = ({
   onDeleteUser,
   customers = [],
   onOpenSuperAdminMenu,
+  theme = 'system',
+  onSelectTheme,
+  onToggleTheme,
 }) => {
   const [form, setForm] = useState<StoreSettings>(settings);
   const [isSaved, setIsSaved] = useState(false);
@@ -251,6 +261,56 @@ export const PengaturanScreen: React.FC<PengaturanScreenProps> = ({
               </div>
             </label>
           </div>
+
+          {/* Dark / Light Theme Mode Selector */}
+          {onToggleTheme && (
+            <div className="pt-2 border-t border-[#dbc1b5]/30">
+              <label className="block text-xs font-bold text-[#554339] mb-2">
+                Tema Tampilan Sistem (Mode Terang / Gelap)
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (theme !== 'light') onToggleTheme();
+                  }}
+                  className={`p-3 rounded-xl border flex items-center gap-3 cursor-pointer transition-all text-left ${
+                    theme === 'light'
+                      ? 'border-[#964407] bg-[#ffdbca]/25 shadow-xs font-bold ring-2 ring-[#964407]/20'
+                      : 'border-[#dbc1b5]/40 bg-white hover:bg-[#f8ece1]'
+                  }`}
+                >
+                  <div className="w-8 h-8 rounded-lg bg-[#f8ece1] text-[#964407] flex items-center justify-center">
+                    <Sun className="w-4 h-4 text-amber-500" />
+                  </div>
+                  <div>
+                    <span className="text-xs font-bold text-[#201b14] block">Mode Terang (Light Cream)</span>
+                    <span className="text-[10px] text-[#645d57]">Tampilan hangat bernuansa barista</span>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (theme !== 'dark') onToggleTheme();
+                  }}
+                  className={`p-3 rounded-xl border flex items-center gap-3 cursor-pointer transition-all text-left ${
+                    theme === 'dark'
+                      ? 'border-[#964407] bg-[#ffdbca]/25 shadow-xs font-bold ring-2 ring-[#964407]/20'
+                      : 'border-[#dbc1b5]/40 bg-white hover:bg-[#f8ece1]'
+                  }`}
+                >
+                  <div className="w-8 h-8 rounded-lg bg-[#271f1a] text-[#ffbe99] flex items-center justify-center">
+                    <Moon className="w-4 h-4 text-[#ffbe99]" />
+                  </div>
+                  <div>
+                    <span className="text-xs font-bold text-[#201b14] block">Mode Gelap (Dark Espresso)</span>
+                    <span className="text-[10px] text-[#645d57]">Nyaman untuk mata di ruangan redup</span>
+                  </div>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Enabled Payments */}

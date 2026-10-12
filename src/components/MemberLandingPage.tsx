@@ -33,6 +33,9 @@ import {
   Store,
   FileSpreadsheet,
   RefreshCw,
+  Sun,
+  Moon,
+  Laptop,
 } from 'lucide-react';
 import { Customer, StoreSettings, VoucherPromo } from '../types';
 import { api } from '../services/api';
@@ -54,6 +57,8 @@ interface MemberLandingPageProps {
   vouchers: VoucherPromo[];
   onOpenPos: () => void;
   onCustomerRegistered?: (newCustomer: Customer) => void;
+  theme?: 'light' | 'dark' | 'system';
+  onToggleTheme?: () => void;
 }
 
 export const MemberLandingPage: React.FC<MemberLandingPageProps> = ({
@@ -62,6 +67,8 @@ export const MemberLandingPage: React.FC<MemberLandingPageProps> = ({
   vouchers,
   onOpenPos,
   onCustomerRegistered,
+  theme = 'light',
+  onToggleTheme,
 }) => {
   // Member authentication state
   const [activeMember, setActiveMember] = useState<Customer | null>(() => {
@@ -125,34 +132,76 @@ export const MemberLandingPage: React.FC<MemberLandingPageProps> = ({
     return () => unsub();
   }, []);
 
-  // Quick Sign Up with Google
+  // Quick Sign Up & Sign In with Google (Auto-Insert to Turso Cloud & Google Sheets)
   const handleGoogleQuickSignUp = async () => {
     setIsQuickGoogleSigningUp(true);
     setSignUpError(null);
+    setSignUpSuccessMsg(null);
     try {
       const res = await signInWithGoogle();
       setGoogleUser(res.user);
       setGoogleToken(res.accessToken);
 
-      if (res.user.displayName) {
-        setSignUpName(res.user.displayName);
-      }
-      if (res.user.email) {
-        setSignUpEmail(res.user.email);
+      const googleEmail = res.user.email || '';
+      const googleName = res.user.displayName || (googleEmail ? googleEmail.split('@')[0] : 'Member Google');
+
+      if (res.user.displayName) setSignUpName(res.user.displayName);
+      if (res.user.email) setSignUpEmail(res.user.email);
+
+      // 1. Auto-Insert / Authenticate in Turso Cloud Database
+      const authResult = await api.memberGoogleAuth({
+        email: googleEmail,
+        name: googleName,
+        avatarUrl: res.user.photoURL || undefined,
+        favoriteCategory: signUpFavCategory || 'Coffee',
+      });
+
+      if (!authResult.success || !authResult.member) {
+        setSignUpError(authResult.error || 'Gagal memproses pendaftaran Google.');
+        setIsQuickGoogleSigningUp(false);
+        return;
       }
 
-      // Verify or create the member spreadsheet in Google Sheets
-      const sheetInfo = await getOrCreateMemberSpreadsheet(res.accessToken, settings.storeName);
-      setSpreadsheetUrl(sheetInfo.url);
+      const activeMemberObj = authResult.member;
 
-      // Focus phone number input
-      const phoneEl = document.getElementById('signup-phone');
-      if (phoneEl) {
-        phoneEl.focus();
+      // 2. Auto-Insert to Google Sheets
+      let isSheetSaved = false;
+      try {
+        const sheetRes = await appendMemberToGoogleSheet(activeMemberObj, res.accessToken, settings.storeName);
+        if (sheetRes.success && sheetRes.spreadsheetUrl) {
+          isSheetSaved = true;
+          setSpreadsheetUrl(sheetRes.spreadsheetUrl);
+        }
+      } catch (sheetErr) {
+        console.warn('[GoogleSheetAutoAppend Warning]', sheetErr);
       }
+
+      // 3. Set Active Session & State
+      setActiveMember(activeMemberObj);
+      try {
+        localStorage.setItem('kasirku_active_member', JSON.stringify(activeMemberObj));
+      } catch {}
+
+      if (onCustomerRegistered) {
+        onCustomerRegistered(activeMemberObj);
+      }
+
+      const welcomeMsg = authResult.isNew
+        ? (isSheetSaved
+            ? 'Pendaftaran Berhasil! Akun Google Anda aktif (+50 Bonus Poin) & otomatis tersimpan di Turso Cloud & Google Sheets.'
+            : 'Pendaftaran Berhasil! Akun Google Anda aktif (+50 Bonus Poin) di database Turso Cloud.')
+        : `Selamat datang kembali, ${activeMemberObj.name}! Akun Google Anda terhubung.`;
+
+      setSignUpSuccessMsg(welcomeMsg);
+
+      // Automatically transition to member card modal after brief moment
+      setTimeout(() => {
+        setAuthModalMode(null);
+        setShowMemberCardModal(true);
+      }, 1000);
     } catch (err: any) {
       console.warn('[QuickGoogleSignUp] Error:', err);
-      setSignUpError(err?.message || 'Gagal menghubungkan ke akun Google.');
+      setSignUpError(err?.message || 'Gagal menghubungkan ke akun Google. Silakan coba kembali.');
     } finally {
       setIsQuickGoogleSigningUp(false);
     }
@@ -445,8 +494,33 @@ export const MemberLandingPage: React.FC<MemberLandingPageProps> = ({
               <span>{googleToken ? 'Sheet Terhubung' : 'Google Sheets'}</span>
             </button>
 
+            {/* Theme Toggle (Dark / Light / System) */}
+            {onToggleTheme && (
+              <button
+                id="nav-theme-toggle-btn"
+                type="button"
+                onClick={onToggleTheme}
+                className="p-2 rounded-xl text-[#51443b] dark:text-[#f7ece4] hover:text-[#964407] hover:bg-[#f8ece1] dark:hover:bg-[#2e231c] border border-[#ebdcd3] dark:border-[#4a382d] bg-white dark:bg-[#1e1713] transition-all shadow-2xs cursor-pointer active:scale-95"
+                title={
+                  theme === 'dark'
+                    ? 'Tema Aktif: Gelap (Klik untuk ganti ke Mode Sistem)'
+                    : theme === 'system'
+                    ? 'Tema Aktif: Ikuti Sistem OS (Klik untuk ganti ke Mode Terang)'
+                    : 'Tema Aktif: Terang (Klik untuk ganti ke Mode Gelap)'
+                }
+              >
+                {theme === 'dark' ? (
+                  <Moon className="w-4 h-4 text-amber-400" />
+                ) : theme === 'system' ? (
+                  <Laptop className="w-4 h-4 text-[#964407] dark:text-[#ffbe99]" />
+                ) : (
+                  <Sun className="w-4 h-4 text-amber-500" />
+                )}
+              </button>
+            )}
+
             {/* Switch to Cashier / POS App */}
-            <div className="h-6 w-[1px] bg-[#ebdcd3] mx-1 hidden sm:block" />
+            <div className="h-6 w-[1px] bg-[#ebdcd3] mx-0.5 hidden sm:block" />
 
             <button
               id="nav-open-pos-btn"
@@ -1551,6 +1625,28 @@ export const MemberLandingPage: React.FC<MemberLandingPageProps> = ({
                       <span>{signInError}</span>
                     </div>
                   )}
+
+                  {/* Google Quick Sign-In / Auto-Insert */}
+                  <div className="space-y-2">
+                    <GoogleSignInButton
+                      id="signin-google-quick-btn"
+                      onClick={handleGoogleQuickSignUp}
+                      disabled={isQuickGoogleSigningUp || signInLoading}
+                      label={
+                        isQuickGoogleSigningUp
+                          ? 'Menghubungkan Akun Google...'
+                          : 'Masuk Cepat dengan Akun Google'
+                      }
+                      className="w-full py-2.5"
+                    />
+                    <div className="flex items-center gap-3 my-1">
+                      <div className="flex-1 h-px bg-[#ebdcd3]" />
+                      <span className="text-[10px] font-bold text-[#847870] uppercase tracking-wider">
+                        Atau Nomor HP / Email
+                      </span>
+                      <div className="flex-1 h-px bg-[#ebdcd3]" />
+                    </div>
+                  </div>
 
                   {/* Input Phone or Email */}
                   <div>
